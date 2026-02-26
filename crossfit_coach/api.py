@@ -1,10 +1,8 @@
 """FastAPI endpoints for the CrossFit Coach application."""
 
-import os
 from contextlib import asynccontextmanager
 from datetime import date
 
-import anthropic
 from fastapi import Depends, FastAPI, HTTPException
 
 from crossfit_coach.database import Base, get_engine, get_session
@@ -44,8 +42,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="CrossFit Coach",
-    description="AI-powered CrossFit training based on L1/L2 methodology",
-    version="0.1.0",
+    description="CrossFit training app based on L1/L2 methodology",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -56,16 +54,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def get_ai_client() -> anthropic.Anthropic:
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="ANTHROPIC_API_KEY not set. Export it: export ANTHROPIC_API_KEY=your-key",
-        )
-    return anthropic.Anthropic(api_key=api_key)
 
 
 def _athlete_to_profile(athlete: Athlete) -> dict:
@@ -140,7 +128,6 @@ def generate_single_workout(req: WorkoutRequest, db=Depends(get_db)):
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found")
 
-    client = get_ai_client()
     profile = _athlete_to_profile(athlete)
 
     if req.available_minutes:
@@ -156,7 +143,7 @@ def generate_single_workout(req: WorkoutRequest, db=Depends(get_db)):
     days = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
     training_ctx["day_of_week"] = days[req.date.weekday()]
 
-    return generate_workout(client, profile, training_ctx)
+    return generate_workout(profile, training_ctx)
 
 
 @app.post("/workouts/week", response_model=WeekPlanResponse)
@@ -165,11 +152,10 @@ def generate_weekly_plan(req: WeekPlanRequest, db=Depends(get_db)):
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found")
 
-    client = get_ai_client()
     profile = _athlete_to_profile(athlete)
     training_ctx = get_current_training_context(db, athlete)
 
-    return generate_week_plan(client, profile, training_ctx)
+    return generate_week_plan(profile, training_ctx)
 
 
 # --- Logging ---
@@ -196,10 +182,6 @@ def log_workout(data: WorkoutLogCreate, db=Depends(get_db)):
     db.commit()
     db.refresh(log)
 
-    # Generate adaptation feedback
-    client = get_ai_client()
-    profile = _athlete_to_profile(athlete)
-
     recent = (
         db.query(WorkoutLog)
         .filter(WorkoutLog.athlete_id == athlete.id)
@@ -212,7 +194,7 @@ def log_workout(data: WorkoutLogCreate, db=Depends(get_db)):
         for r in recent
     ]
 
-    feedback = generate_adaptation_feedback(client, profile, data.model_dump(), recent_dicts)
+    feedback = generate_adaptation_feedback(data.model_dump(), recent_dicts)
 
     return WorkoutLogResponse(
         id=log.id,
@@ -258,14 +240,13 @@ def get_progress(athlete_id: int, db=Depends(get_db)):
         raise HTTPException(status_code=404, detail="Athlete not found")
 
     ctx = get_current_training_context(db, athlete)
-    client = get_ai_client()
     profile = _athlete_to_profile(athlete)
 
-    assessment = generate_progress_assessment(client, profile, ctx)
+    assessment = generate_progress_assessment(profile, ctx)
     level_suggestion = should_suggest_level_change(db, athlete)
 
     if level_suggestion:
-        assessment += f"\n\n⚡ {level_suggestion}"
+        assessment += f"\n\n{level_suggestion}"
 
     recent_benchmarks = (
         db.query(Benchmark)
@@ -280,13 +261,13 @@ def get_progress(athlete_id: int, db=Depends(get_db)):
         current_phase=ctx["phase"],
         current_week=ctx["week_number"],
         avg_rpe_last_week=ctx["avg_rpe"],
-        rx_percentage=0.0,  # Calculated from logs
+        rx_percentage=0.0,
         modality_distribution=ctx["modality_distribution"],
         recent_benchmarks=[
             BenchmarkResponse(name=b.name, value=b.value, recorded_at=b.recorded_at)
             for b in recent_benchmarks
         ],
-        ai_assessment=assessment,
+        assessment=assessment,
     )
 
 

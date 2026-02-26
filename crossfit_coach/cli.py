@@ -1,35 +1,27 @@
 """CLI interface for CrossFit Coach - quick terminal-based usage."""
 
 import json
-import os
-import sys
 from datetime import date
 
 import typer
 from rich.console import Console
-from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
 from crossfit_coach.database import get_session
+from crossfit_coach.engine import (
+    generate_adaptation_feedback,
+    generate_progress_assessment,
+    generate_week_plan,
+    generate_workout,
+)
 from crossfit_coach.knowledge import EQUIPMENT_CATALOG
 from crossfit_coach.models import Athlete, Benchmark, Equipment, FitnessLevel, WorkoutLog
-from crossfit_coach.periodization import get_current_training_context, advance_week, should_suggest_level_change
+from crossfit_coach.periodization import advance_week, get_current_training_context, should_suggest_level_change
 
-app = typer.Typer(name="cfc", help="CrossFit Coach - AI-powered training based on L1/L2 methodology")
+app = typer.Typer(name="cfc", help="CrossFit Coach - Entrenamiento basado en metodología L1/L2")
 console = Console()
-
-
-def _get_client():
-    import anthropic
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        console.print("[red]Error: ANTHROPIC_API_KEY not set[/red]")
-        console.print("Run: export ANTHROPIC_API_KEY=your-key-here")
-        raise typer.Exit(1)
-    return anthropic.Anthropic(api_key=api_key)
 
 
 def _get_athlete(db, athlete_id: int | None = None) -> Athlete:
@@ -39,15 +31,27 @@ def _get_athlete(db, athlete_id: int | None = None) -> Athlete:
         athlete = db.query(Athlete).first()
 
     if not athlete:
-        console.print("[red]No athlete profile found. Run: cfc setup[/red]")
+        console.print("[red]No hay perfil de atleta. Ejecuta: cfc setup[/red]")
         raise typer.Exit(1)
     return athlete
 
 
+def _athlete_to_profile(athlete: Athlete) -> dict:
+    return {
+        "name": athlete.name,
+        "level": athlete.level.value,
+        "training_days_per_week": athlete.training_days_per_week,
+        "session_duration_minutes": athlete.session_duration_minutes,
+        "goals": athlete.goals,
+        "injuries_limitations": athlete.injuries_limitations,
+        "equipment": [eq.name for eq in athlete.equipment],
+    }
+
+
 @app.command()
 def setup():
-    """Set up your athlete profile interactively."""
-    console.print(Panel.fit("🏋️ CrossFit Coach - Setup", style="bold blue"))
+    """Configura tu perfil de atleta."""
+    console.print(Panel.fit("CrossFit Coach - Setup", style="bold blue"))
 
     name = Prompt.ask("Tu nombre")
 
@@ -89,7 +93,6 @@ def setup():
     # Save to database
     db = get_session()
 
-    # Check if athlete already exists
     existing = db.query(Athlete).first()
     if existing:
         if not Confirm.ask(f"Ya existe el perfil de '{existing.name}'. ¿Reemplazar?"):
@@ -124,23 +127,11 @@ def workout(
     minutes: int = typer.Option(None, "--minutes", "-m", help="Duración disponible"),
     athlete_id: int = typer.Option(None, "--athlete", "-a", help="ID del atleta"),
 ):
-    """Generate today's workout."""
-    from crossfit_coach.engine import generate_workout
-
+    """Genera el entrenamiento de hoy."""
     db = get_session()
     athlete = _get_athlete(db, athlete_id)
-    client = _get_client()
 
-    profile = {
-        "name": athlete.name,
-        "level": athlete.level.value,
-        "training_days_per_week": athlete.training_days_per_week,
-        "session_duration_minutes": minutes or athlete.session_duration_minutes,
-        "goals": athlete.goals,
-        "injuries_limitations": athlete.injuries_limitations,
-        "equipment": [eq.name for eq in athlete.equipment],
-    }
-
+    profile = _athlete_to_profile(athlete)
     if minutes:
         profile["available_minutes"] = minutes
 
@@ -148,11 +139,10 @@ def workout(
     if focus:
         ctx["requested_focus"] = focus
 
-    days = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-    ctx["day_of_week"] = days[date.today().weekday()]
+    days_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+    ctx["day_of_week"] = days_es[date.today().weekday()]
 
-    with console.status("[bold blue]Generando tu entrenamiento...[/bold blue]"):
-        result = generate_workout(client, profile, ctx)
+    result = generate_workout(profile, ctx)
 
     # Display
     console.print()
@@ -181,27 +171,14 @@ def workout(
 def week(
     athlete_id: int = typer.Option(None, "--athlete", "-a", help="ID del atleta"),
 ):
-    """Generate a full week training plan."""
-    from crossfit_coach.engine import generate_week_plan
-
+    """Genera un plan semanal completo."""
     db = get_session()
     athlete = _get_athlete(db, athlete_id)
-    client = _get_client()
 
-    profile = {
-        "name": athlete.name,
-        "level": athlete.level.value,
-        "training_days_per_week": athlete.training_days_per_week,
-        "session_duration_minutes": athlete.session_duration_minutes,
-        "goals": athlete.goals,
-        "injuries_limitations": athlete.injuries_limitations,
-        "equipment": [eq.name for eq in athlete.equipment],
-    }
-
+    profile = _athlete_to_profile(athlete)
     ctx = get_current_training_context(db, athlete)
 
-    with console.status("[bold blue]Generando plan semanal...[/bold blue]"):
-        plan = generate_week_plan(client, profile, ctx)
+    plan = generate_week_plan(profile, ctx)
 
     console.print()
     console.print(Panel.fit(
@@ -243,12 +220,9 @@ def log(
     soreness: str = typer.Option(None, "--soreness", help="Zonas con agujetas"),
     athlete_id: int = typer.Option(None, "--athlete", "-a", help="ID del atleta"),
 ):
-    """Log a completed workout and get AI feedback."""
-    from crossfit_coach.engine import generate_adaptation_feedback
-
+    """Registra un entrenamiento completado y recibe feedback."""
     db = get_session()
     athlete = _get_athlete(db, athlete_id)
-    client = _get_client()
 
     workout_log = WorkoutLog(
         athlete_id=athlete.id,
@@ -262,12 +236,6 @@ def log(
     )
     db.add(workout_log)
     db.commit()
-
-    profile = {
-        "name": athlete.name,
-        "level": athlete.level.value,
-        "equipment": [eq.name for eq in athlete.equipment],
-    }
 
     log_data = {
         "score": score,
@@ -291,14 +259,12 @@ def log(
         for r in recent
     ]
 
-    with console.status("[bold blue]Analizando tu entrenamiento...[/bold blue]"):
-        feedback = generate_adaptation_feedback(client, profile, log_data, recent_dicts)
+    feedback = generate_adaptation_feedback(log_data, recent_dicts)
 
     console.print(Panel(f"Score: {score or 'N/A'} | RPE: {rpe}/10 | Rx: {'Sí' if rx else 'No'}",
                         title="Entrenamiento registrado", style="green"))
     console.print(Panel(feedback, title="Feedback de adaptación", style="magenta"))
 
-    # Check for level suggestion
     suggestion = should_suggest_level_change(db, athlete)
     if suggestion:
         console.print(Panel(suggestion, title="Sugerencia de nivel", style="bold yellow"))
@@ -310,7 +276,7 @@ def benchmark(
     value: str = typer.Option(..., "--value", "-v", help="Resultado (ej: '3:45', '120kg')"),
     athlete_id: int = typer.Option(None, "--athlete", "-a", help="ID del atleta"),
 ):
-    """Record a benchmark result."""
+    """Registra un resultado de benchmark."""
     db = get_session()
     athlete = _get_athlete(db, athlete_id)
 
@@ -325,20 +291,12 @@ def benchmark(
 def progress(
     athlete_id: int = typer.Option(None, "--athlete", "-a", help="ID del atleta"),
 ):
-    """View training progress and AI assessment."""
-    from crossfit_coach.engine import generate_progress_assessment
-
+    """Ver progreso y evaluación."""
     db = get_session()
     athlete = _get_athlete(db, athlete_id)
-    client = _get_client()
 
     ctx = get_current_training_context(db, athlete)
-    profile = {
-        "name": athlete.name,
-        "level": athlete.level.value,
-        "goals": athlete.goals,
-        "equipment": [eq.name for eq in athlete.equipment],
-    }
+    profile = _athlete_to_profile(athlete)
 
     # Stats table
     table = Table(title=f"Progreso de {athlete.name}")
@@ -362,11 +320,9 @@ def progress(
             bm_table.add_row(bm.name, bm.value, str(bm.recorded_at))
         console.print(bm_table)
 
-    # AI assessment
-    with console.status("[bold blue]Generando evaluación...[/bold blue]"):
-        assessment = generate_progress_assessment(client, profile, ctx)
+    assessment = generate_progress_assessment(profile, ctx)
 
-    console.print(Panel(assessment, title="Evaluación del Coach", style="magenta"))
+    console.print(Panel(assessment, title="Evaluación", style="magenta"))
 
     suggestion = should_suggest_level_change(db, athlete)
     if suggestion:
@@ -377,7 +333,7 @@ def progress(
 def profile(
     athlete_id: int = typer.Option(None, "--athlete", "-a", help="ID del atleta"),
 ):
-    """View current athlete profile."""
+    """Ver perfil actual."""
     db = get_session()
     athlete = _get_athlete(db, athlete_id)
 

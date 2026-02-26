@@ -134,4 +134,4 @@ class ProgressSummary(BaseModel):
     rx_percentage: float
     modality_distribution: dict[str, int]
     recent_benchmarks: list[BenchmarkResponse]
-    ai_assessment: str  # AI-generated progress summary and recommendations
+    assessment: str  # Progress summary and recommendations
