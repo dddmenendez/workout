@@ -178,6 +178,7 @@ class WorkoutLog(Base):
     energy_level: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1-5 pre-workout
     sleep_quality: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1-5
     muscle_soreness: Mapped[str | None] = mapped_column(Text, nullable=True)  # body areas
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)  # timer duration
 
     athlete: Mapped["Athlete"] = relationship(back_populates="workout_logs")
     planned_workout: Mapped["PlannedWorkout | None"] = relationship(back_populates="log")

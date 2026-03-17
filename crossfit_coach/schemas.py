@@ -102,6 +102,7 @@ class WorkoutLogCreate(BaseModel):
     energy_level: int | None = Field(default=None, ge=1, le=5)
     sleep_quality: int | None = Field(default=None, ge=1, le=5)
     muscle_soreness: str | None = None
+    duration_seconds: int | None = None
 
 
 class WorkoutLogResponse(BaseModel):
@@ -111,9 +112,31 @@ class WorkoutLogResponse(BaseModel):
     rpe: int | None
     went_rx: bool
     notes: str | None
-    adaptation_feedback: str  # AI-generated insight on how this affects future programming
+    duration_seconds: int | None = None
+    adaptation_feedback: str
 
     model_config = {"from_attributes": True}
+
+
+# --- Feed Social ---
+
+
+class FeedEntry(BaseModel):
+    athlete_id: int
+    athlete_name: str
+    workout_type: str | None = None
+    wod_summary: str | None = None
+    score: str | None = None
+    rpe: int | None = None
+    went_rx: bool = False
+    duration_seconds: int | None = None
+    completed_at: datetime
+    notes: str | None = None
+
+
+class FeedResponse(BaseModel):
+    entries: list[FeedEntry]
+    total: int
 
 
 # --- Benchmark ---

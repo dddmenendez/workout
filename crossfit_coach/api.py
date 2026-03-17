@@ -4,7 +4,10 @@ from contextlib import asynccontextmanager
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
+from pathlib import Path
+
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 
 from crossfit_coach.database import Base, get_engine, get_session
 from crossfit_coach.engine import (
@@ -43,6 +46,8 @@ from crossfit_coach.schemas import (
     WorkoutLogResponse,
     WorkoutRequest,
     WorkoutResponse,
+    FeedEntry,
+    FeedResponse,
 )
 
 
@@ -370,6 +375,7 @@ def log_workout(data: WorkoutLogCreate, db=Depends(get_db)):
         energy_level=data.energy_level,
         sleep_quality=data.sleep_quality,
         muscle_soreness=data.muscle_soreness,
+        duration_seconds=data.duration_seconds,
     )
     db.add(log)
     db.commit()
@@ -396,6 +402,7 @@ def log_workout(data: WorkoutLogCreate, db=Depends(get_db)):
         rpe=log.rpe,
         went_rx=log.went_rx,
         notes=log.notes,
+        duration_seconds=log.duration_seconds,
         adaptation_feedback=feedback,
     )
 
@@ -649,3 +656,50 @@ def advance_training_week(athlete_id: int, db=Depends(get_db)):
         "focus": week.focus,
         "target_intensity": week.target_intensity,
     }
+
+
+# --- Social Feed ---
+
+
+@app.get("/feed", response_model=FeedResponse)
+def get_feed(limit: int = 50, offset: int = 0, db=Depends(get_db)):
+    """Public feed: recent workouts from all athletes."""
+    total = db.query(WorkoutLog).count()
+    logs = (
+        db.query(WorkoutLog)
+        .order_by(WorkoutLog.completed_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    entries = []
+    for log in logs:
+        athlete = db.get(Athlete, log.athlete_id)
+        wod_summary = None
+        wtype = None
+        if log.planned_workout:
+            wod_summary = (log.planned_workout.wod or "")[:120]
+            wtype = log.planned_workout.workout_type.value if log.planned_workout.workout_type else None
+
+        entries.append(FeedEntry(
+            athlete_id=log.athlete_id,
+            athlete_name=athlete.name if athlete else "Unknown",
+            workout_type=wtype,
+            wod_summary=wod_summary,
+            score=log.score,
+            rpe=log.rpe,
+            went_rx=log.went_rx,
+            duration_seconds=log.duration_seconds,
+            completed_at=log.completed_at,
+            notes=log.notes,
+        ))
+
+    return FeedResponse(entries=entries, total=total)
+
+
+# --- Static frontend ---
+
+_STATIC_DIR = Path(__file__).parent / "static"
+if _STATIC_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=str(_STATIC_DIR), html=True), name="static")

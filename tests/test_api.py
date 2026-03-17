@@ -192,6 +192,38 @@ class TestLoggingEndpoints:
         assert data["went_rx"] is True
         assert "adaptation_feedback" in data
 
+    def test_log_with_duration(self, client):
+        aid = self._create_athlete(client)
+        r = client.post("/logs", json={"athlete_id": aid, "rpe": 6, "went_rx": False, "duration_seconds": 723})
+        assert r.status_code == 200
+        assert r.json()["duration_seconds"] == 723
+
+
+class TestFeed:
+
+    def _create_athlete(self, client):
+        return client.post("/athletes", json=ATHLETE_DATA).json()["id"]
+
+    def test_feed_empty(self, client):
+        r = client.get("/feed")
+        assert r.status_code == 200
+        assert r.json()["entries"] == []
+        assert r.json()["total"] == 0
+
+    def test_feed_shows_entries(self, client):
+        aid = self._create_athlete(client)
+        client.post("/logs", json={"athlete_id": aid, "rpe": 7, "went_rx": True, "duration_seconds": 600})
+        client.post("/logs", json={"athlete_id": aid, "rpe": 5, "went_rx": False})
+
+        r = client.get("/feed")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 2
+        assert len(data["entries"]) == 2
+        assert data["entries"][0]["athlete_name"] == "María"
+        # Most recent first
+        assert data["entries"][0]["rpe"] == 5
+
 
 class TestWorkoutHistory:
 

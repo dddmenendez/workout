@@ -2,8 +2,8 @@
 
 ## Estado actual
 
-Las **Fases 1, 2, 3 y 5 están completadas**. Persistencia, multiusuario, analíticas, y testing completos.
-Siguiente: **Fase 4 — Frontend web**.
+Las **Fases 1, 2, 3, 4 y 5 están completadas**. App completa con frontend web.
+Siguiente: **Fase 6 — Extras opcionales**.
 
 ---
 
@@ -56,25 +56,29 @@ Siguiente: **Fase 4 — Frontend web**.
 
 ---
 
-## Fase 4 — Frontend web
+## Fase 4 — Frontend web ✅ COMPLETADA
 
-> Sin UI web, la app solo es accesible por terminal o cliente API (Postman, curl).
+> SPA completa servida desde FastAPI con diseño dark glassmorphism, timer integrado, y feed social.
 
-- [ ] Elegir framework frontend (React / Vue / Svelte)
-- [ ] Pantalla de login/selección de atleta
-- [ ] Dashboard principal: WOD del día + resumen de progreso
-- [ ] Vista de calendario con entrenamientos pasados y planificados
-- [ ] Formulario para registrar resultados (score, RPE, notas)
-- [ ] Página de perfil: editar equipo, nivel, objetivos, frecuencia
-- [ ] Página de progreso: gráficas de RPE, benchmarks, volumen, Rx%
-- [ ] Leaderboard entre atletas
-- [ ] Diseño responsive (móvil primero)
+- [x] SPA vanilla HTML/CSS/JS servida desde `crossfit_coach/static/` (sin build step)
+- [x] Diseño dark mode moderno con gradientes, glassmorphism, responsive mobile-first
+- [x] Selector de atleta + modal de creación de atleta con equipamiento
+- [x] **Dashboard**: hero card con stats (entrenamientos, Rx%, RPE, semana), donut de modalidades, benchmarks, evaluación
+- [x] **WOD**: generador con selector de foco, display completo (warmup, fuerza, WOD, scaling, cooldown, notas coach)
+- [x] **Timer**: cronómetro en vivo con estados visual (running/paused), se auto-pausa al loguear, duración se guarda en DB
+- [x] **Log de resultado**: selector RPE visual (1-10 con colores), estrellas energía/sueño, checkbox Rx, score, notas
+- [x] **Historial**: lista paginada de workouts con tipo, preview WOD, estado de log
+- [x] **Progreso**: 4 gráficas Chart.js (RPE semanal, Rx%, volumen, modalidades stacked) + grid de PRs
+- [x] **Feed Social**: feed público de entrenamientos de todos los atletas con avatar, tiempo relativo, stats
+- [x] Campo `duration_seconds` añadido a WorkoutLog (modelo + schema + API)
+- [x] Endpoint `GET /feed` — entrenamientos recientes de todos los atletas
+- [x] 38 tests pasando (3 nuevos: feed empty, feed entries, log with duration)
 
 ---
 
 ## Fase 5 — Testing y robustez ✅ COMPLETADA
 
-> Suite de tests completa con 35 tests pasando, más CI con GitHub Actions.
+> Suite de tests completa con 38 tests pasando, más CI con GitHub Actions.
 
 - [x] Tests unitarios para `periodization.py` — contexto de entrenamiento, auto-regulación, avance de semana, sugerencia de nivel, helpers
 - [x] Tests de integración para la API — todos los endpoints (CRUD atletas, benchmarks, progreso, trends, leaderboard, PRs, logging, historial, avance semana)

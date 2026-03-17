@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CrossFit Coach</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ========== NAV ========== -->
+<nav class="navbar">
+  <div class="nav-brand" onclick="navigate('dashboard')">
+    <span class="brand-icon">&#9889;</span> CrossFit Coach
+  </div>
+  <div class="nav-links">
+    <a class="nav-link active" data-view="dashboard" onclick="navigate('dashboard')">Dashboard</a>
+    <a class="nav-link" data-view="workout" onclick="navigate('workout')">WOD</a>
+    <a class="nav-link" data-view="history" onclick="navigate('history')">Historial</a>
+    <a class="nav-link" data-view="progress" onclick="navigate('progress')">Progreso</a>
+    <a class="nav-link" data-view="feed" onclick="navigate('feed')">Feed</a>
+  </div>
+  <div class="nav-athlete">
+    <select id="athlete-selector" onchange="switchAthlete()"></select>
+    <button class="btn btn-sm btn-accent" onclick="showCreateAthleteModal()">+</button>
+  </div>
+</nav>
+
+<!-- ========== VIEWS ========== -->
+
+<!-- DASHBOARD -->
+<main id="view-dashboard" class="view active">
+  <div class="hero-card">
+    <div class="hero-greeting">
+      <h1 id="dash-greeting">Hola!</h1>
+      <p id="dash-phase" class="phase-badge"></p>
+    </div>
+    <div class="hero-stats">
+      <div class="stat-card">
+        <span class="stat-number" id="dash-total">0</span>
+        <span class="stat-label">Entrenamientos</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-number" id="dash-rx">0%</span>
+        <span class="stat-label">Rx Rate</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-number" id="dash-rpe">-</span>
+        <span class="stat-label">RPE Prom.</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-number" id="dash-week">1</span>
+        <span class="stat-label">Semana</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3>Distribuci&oacute;n de Modalidades</h3>
+      <canvas id="dash-mod-chart" height="200"></canvas>
+    </div>
+    <div class="card">
+      <h3>Evaluaci&oacute;n</h3>
+      <p id="dash-assessment" class="assessment-text"></p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Benchmarks Recientes</h3>
+    <div id="dash-benchmarks" class="benchmarks-grid"></div>
+  </div>
+</main>
+
+<!-- WOD + TIMER -->
+<main id="view-workout" class="view">
+  <div class="grid-2">
+    <!-- Generate panel -->
+    <div class="card">
+      <h2>Generar WOD</h2>
+      <div class="form-group">
+        <label>Foco (opcional)</label>
+        <select id="wod-focus">
+          <option value="">General</option>
+          <option value="weightlifting">Weightlifting</option>
+          <option value="gymnastics">Gymnastics</option>
+          <option value="cardio">Cardio / Mono</option>
+          <option value="squat">Sentadilla</option>
+          <option value="olympic">Ol&iacute;mpicos</option>
+          <option value="mixed">Mixed Modal</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-lg" onclick="generateWod()" id="btn-generate">
+        Generar Entrenamiento
+      </button>
+
+      <div id="wod-result" class="wod-display hidden">
+        <div class="wod-section">
+          <h4>&#128293; Warm-up</h4>
+          <pre id="wod-warmup"></pre>
+        </div>
+        <div id="wod-strength-section" class="wod-section hidden">
+          <h4>&#127947; Fuerza / Skill</h4>
+          <pre id="wod-strength"></pre>
+        </div>
+        <div class="wod-section wod-main">
+          <div class="wod-header">
+            <h4>&#128165; WOD</h4>
+            <span class="wod-type-badge" id="wod-type-badge"></span>
+          </div>
+          <pre id="wod-wod"></pre>
+        </div>
+        <div class="wod-meta">
+          <span class="meta-tag" id="wod-time-domain"></span>
+          <span class="meta-tag" id="wod-modalities"></span>
+        </div>
+        <div class="wod-section">
+          <h4>&#128172; Notas del Coach</h4>
+          <p id="wod-coaches"></p>
+        </div>
+        <div class="wod-section">
+          <h4>&#9660; Escalado</h4>
+          <pre id="wod-scaling"></pre>
+        </div>
+        <div class="wod-section">
+          <h4>&#129518; Cooldown</h4>
+          <pre id="wod-cooldown"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Timer + Log panel -->
+    <div>
+      <div class="card timer-card">
+        <h2>Timer</h2>
+        <div class="timer-display" id="timer-display">00:00</div>
+        <div class="timer-controls">
+          <button class="btn btn-success" id="btn-timer-start" onclick="timerStart()">Iniciar</button>
+          <button class="btn btn-warning" id="btn-timer-pause" onclick="timerPause()" disabled>Pausa</button>
+          <button class="btn btn-danger" id="btn-timer-reset" onclick="timerReset()">Reset</button>
+        </div>
+      </div>
+
+      <div class="card" id="log-panel">
+        <h2>Registrar Resultado</h2>
+        <div class="form-group">
+          <label>Score</label>
+          <input type="text" id="log-score" placeholder="ej: 5 rounds + 3, 12:35, 100kg">
+        </div>
+        <div class="form-group">
+          <label>RPE (1-10)</label>
+          <div class="rpe-selector" id="rpe-selector"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Energ&iacute;a pre-WOD</label>
+            <div class="star-selector" id="energy-selector"></div>
+          </div>
+          <div class="form-group">
+            <label>Calidad sue&ntilde;o</label>
+            <div class="star-selector" id="sleep-selector"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="log-rx"> Complet&eacute; Rx
+          </label>
+        </div>
+        <div class="form-group">
+          <label>Notas</label>
+          <textarea id="log-notes" rows="2" placeholder="C&oacute;mo te sentiste..."></textarea>
+        </div>
+        <button class="btn btn-primary btn-lg" onclick="logWorkout()">Guardar Resultado</button>
+        <div id="log-feedback" class="feedback-box hidden"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- HISTORY -->
+<main id="view-history" class="view">
+  <div class="card">
+    <h2>Historial de Entrenamientos</h2>
+    <div id="history-list" class="history-list"></div>
+    <div class="pagination">
+      <button class="btn btn-sm" onclick="historyPrev()" id="hist-prev">Anterior</button>
+      <span id="hist-page-info"></span>
+      <button class="btn btn-sm" onclick="historyNext()" id="hist-next">Siguiente</button>
+    </div>
+  </div>
+</main>
+
+<!-- PROGRESS -->
+<main id="view-progress" class="view">
+  <div class="grid-2">
+    <div class="card">
+      <h3>RPE Semanal</h3>
+      <canvas id="chart-rpe" height="200"></canvas>
+    </div>
+    <div class="card">
+      <h3>Rx % Semanal</h3>
+      <canvas id="chart-rx" height="200"></canvas>
+    </div>
+  </div>
+  <div class="grid-2">
+    <div class="card">
+      <h3>Volumen Semanal</h3>
+      <canvas id="chart-volume" height="200"></canvas>
+    </div>
+    <div class="card">
+      <h3>Modalidades Acumuladas</h3>
+      <canvas id="chart-modalities" height="200"></canvas>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Records Personales</h3>
+    <div id="prs-list" class="prs-grid"></div>
+  </div>
+</main>
+
+<!-- FEED -->
+<main id="view-feed" class="view">
+  <div class="card">
+    <h2>Feed de Entrenamientos</h2>
+    <p class="feed-subtitle">Ve lo que entrenan tus amigos</p>
+    <div id="feed-list" class="feed-list"></div>
+  </div>
+</main>
+
+<!-- CREATE ATHLETE MODAL -->
+<div id="modal-overlay" class="modal-overlay hidden" onclick="closeModal()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h2>Nuevo Atleta</h2>
+    <div class="form-group">
+      <label>Nombre</label>
+      <input type="text" id="new-name" placeholder="Tu nombre">
+    </div>
+    <div class="form-group">
+      <label>Nivel</label>
+      <select id="new-level">
+        <option value="beginner">Principiante</option>
+        <option value="intermediate" selected>Intermedio</option>
+        <option value="advanced">Avanzado</option>
+        <option value="elite">Elite</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>D&iacute;as/semana</label>
+        <input type="number" id="new-days" value="4" min="1" max="7">
+      </div>
+      <div class="form-group">
+        <label>Min/sesi&oacute;n</label>
+        <input type="number" id="new-minutes" value="60" min="20" max="120">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Equipamiento</label>
+      <div class="equipment-grid" id="equipment-grid">
+        <label class="equip-chip"><input type="checkbox" value="barbell" checked> Barra</label>
+        <label class="equip-chip"><input type="checkbox" value="pull_up_bar" checked> Barra dom.</label>
+        <label class="equip-chip"><input type="checkbox" value="rings"> Anillas</label>
+        <label class="equip-chip"><input type="checkbox" value="rower"> Remo</label>
+        <label class="equip-chip"><input type="checkbox" value="bike"> Bici</label>
+        <label class="equip-chip"><input type="checkbox" value="kettlebell"> Kettlebell</label>
+        <label class="equip-chip"><input type="checkbox" value="dumbbell"> Mancuerna</label>
+        <label class="equip-chip"><input type="checkbox" value="box"> Caj&oacute;n</label>
+        <label class="equip-chip"><input type="checkbox" value="rope"> Cuerda</label>
+        <label class="equip-chip"><input type="checkbox" value="wall_ball"> Wall Ball</label>
+        <label class="equip-chip"><input type="checkbox" value="ghd"> GHD</label>
+        <label class="equip-chip"><input type="checkbox" value="sled"> Trineo</label>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Objetivos</label>
+      <input type="text" id="new-goals" placeholder="ej: muscle-ups, mejorar Fran">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="createAthlete()">Crear</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast" class="toast hidden"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
