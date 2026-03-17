@@ -64,10 +64,24 @@ class RPE(int, enum.Enum):
 # --- Models ---
 
 
+class User(Base):
+    """User account for authentication."""
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255))
+    display_name: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    athlete: Mapped["Athlete | None"] = relationship(back_populates="user", uselist=False)
+
+
 class Athlete(Base):
     __tablename__ = "athletes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, unique=True)
     name: Mapped[str] = mapped_column(String(100))
     level: Mapped[FitnessLevel] = mapped_column(Enum(FitnessLevel), default=FitnessLevel.BEGINNER)
     training_days_per_week: Mapped[int] = mapped_column(Integer, default=3)
@@ -76,6 +90,7 @@ class Athlete(Base):
     injuries_limitations: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    user: Mapped["User | None"] = relationship(back_populates="athlete")
     equipment: Mapped[list["Equipment"]] = relationship(back_populates="athlete", cascade="all, delete-orphan")
     benchmarks: Mapped[list["Benchmark"]] = relationship(back_populates="athlete", cascade="all, delete-orphan")
     workout_logs: Mapped[list["WorkoutLog"]] = relationship(back_populates="athlete", cascade="all, delete-orphan")

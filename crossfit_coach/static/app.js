@@ -8,6 +8,10 @@ let lastGeneratedWorkoutId = null;
 let historyOffset = 0;
 const HISTORY_LIMIT = 10;
 
+// Auth state
+let authToken = localStorage.getItem('cfc_token');
+let authUser = JSON.parse(localStorage.getItem('cfc_user') || 'null');
+
 // Chart instances
 let chartRpe = null, chartRx = null, chartVolume = null, chartModalities = null, dashModChart = null;
 
@@ -18,8 +22,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   buildRpeSelector();
   buildStarSelector('energy-selector', 5);
   buildStarSelector('sleep-selector', 5);
-  await loadAthletes();
-  if (currentAthleteId) loadDashboard();
+
+  if (authToken && authUser) {
+    enterApp();
+  }
+  // else: auth screen is visible by default
 });
 
 /* ============ NAVIGATION ============ */
@@ -36,12 +43,130 @@ function navigate(view) {
   else if (view === 'feed') loadFeed();
 }
 
+/* ============ AUTH ============ */
+function showRegister() {
+  document.getElementById('auth-login').classList.add('hidden');
+  document.getElementById('auth-register').classList.remove('hidden');
+  document.getElementById('auth-error').classList.add('hidden');
+}
+
+function showLogin() {
+  document.getElementById('auth-register').classList.add('hidden');
+  document.getElementById('auth-login').classList.remove('hidden');
+  document.getElementById('auth-error').classList.add('hidden');
+}
+
+function authError(msg) {
+  const el = document.getElementById('auth-error');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+async function doRegister() {
+  const name = document.getElementById('reg-name').value.trim();
+  const email = document.getElementById('reg-email').value.trim();
+  const password = document.getElementById('reg-password').value;
+
+  if (!name || !email || !password) return authError('Completa todos los campos');
+  if (password.length < 6) return authError('La contrase\u00f1a debe tener al menos 6 caracteres');
+
+  try {
+    const res = await fetch('/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, display_name: name }),
+    });
+    const data = await res.json();
+    if (!res.ok) return authError(data.detail || 'Error al registrar');
+
+    saveAuth(data);
+    enterApp();
+  } catch (e) {
+    authError('Error de conexi\u00f3n');
+  }
+}
+
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+
+  if (!email || !password) return authError('Completa todos los campos');
+
+  try {
+    const res = await fetch('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) return authError(data.detail || 'Error al iniciar sesi\u00f3n');
+
+    saveAuth(data);
+    enterApp();
+  } catch (e) {
+    authError('Error de conexi\u00f3n');
+  }
+}
+
+function skipAuth() {
+  // Demo mode: no token, just enter the app
+  authToken = null;
+  authUser = null;
+  enterApp();
+}
+
+function saveAuth(data) {
+  authToken = data.token;
+  authUser = { id: data.user_id, email: data.email, display_name: data.display_name, athlete_id: data.athlete_id };
+  localStorage.setItem('cfc_token', authToken);
+  localStorage.setItem('cfc_user', JSON.stringify(authUser));
+}
+
+function doLogout() {
+  authToken = null;
+  authUser = null;
+  localStorage.removeItem('cfc_token');
+  localStorage.removeItem('cfc_user');
+  currentAthleteId = null;
+
+  document.getElementById('auth-screen').classList.remove('hidden');
+  document.getElementById('main-navbar').classList.add('hidden');
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  showLogin();
+}
+
+async function enterApp() {
+  document.getElementById('auth-screen').classList.add('hidden');
+  document.getElementById('main-navbar').classList.remove('hidden');
+
+  // Show user info in nav
+  if (authUser) {
+    document.getElementById('nav-user-name').textContent = authUser.display_name;
+    document.getElementById('btn-logout').style.display = '';
+    if (authUser.athlete_id) currentAthleteId = authUser.athlete_id;
+  } else {
+    document.getElementById('nav-user-name').textContent = 'Demo';
+    document.getElementById('btn-logout').style.display = 'none';
+  }
+
+  await loadAthletes();
+  if (currentAthleteId) {
+    navigate('dashboard');
+  }
+}
+
 /* ============ API HELPERS ============ */
 async function api(path, opts = {}) {
   const url = API + path;
-  const config = { headers: { 'Content-Type': 'application/json' }, ...opts };
+  const headers = { 'Content-Type': 'application/json' };
+  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+  const config = { headers, ...opts };
   if (opts.body && typeof opts.body === 'object') config.body = JSON.stringify(opts.body);
   const res = await fetch(url, config);
+  if (res.status === 401) {
+    doLogout();
+    throw new Error('Sesi\u00f3n expirada');
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || 'Error');

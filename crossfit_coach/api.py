@@ -9,6 +9,13 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
+from crossfit_coach.auth import (
+    create_access_token,
+    hash_password,
+    verify_password,
+    decode_token,
+    security,
+)
 from crossfit_coach.database import Base, get_engine, get_session
 from crossfit_coach.engine import (
     generate_adaptation_feedback,
@@ -16,7 +23,7 @@ from crossfit_coach.engine import (
     generate_week_plan,
     generate_workout,
 )
-from crossfit_coach.models import Athlete, Benchmark, Equipment, PlannedWorkout, TrainingWeek, WorkoutLog
+from crossfit_coach.models import Athlete, Benchmark, Equipment, PlannedWorkout, TrainingWeek, User, WorkoutLog
 from crossfit_coach.periodization import (
     advance_week,
     get_current_training_context,
@@ -26,18 +33,24 @@ from crossfit_coach.schemas import (
     AthleteCreate,
     AthleteResponse,
     AthleteUpdate,
+    AuthResponse,
     BenchmarkCreate,
     BenchmarkEntry,
     BenchmarkHistory,
     BenchmarkHistoryResponse,
     BenchmarkResponse,
+    FeedEntry,
+    FeedResponse,
     LeaderboardEntry,
     LeaderboardResponse,
+    LoginRequest,
     PersonalRecord,
     PersonalRecordsResponse,
     PlannedWorkoutResponse,
     ProgressSummary,
+    RegisterRequest,
     TrendsResponse,
+    UserResponse,
     WeekPlanRequest,
     WeekPlanResponse,
     WeeklyStats,
@@ -46,8 +59,6 @@ from crossfit_coach.schemas import (
     WorkoutLogResponse,
     WorkoutRequest,
     WorkoutResponse,
-    FeedEntry,
-    FeedResponse,
 )
 
 
@@ -84,6 +95,101 @@ def _athlete_to_profile(athlete: Athlete) -> dict:
         "injuries_limitations": athlete.injuries_limitations,
         "equipment": [eq.name for eq in athlete.equipment],
     }
+
+
+# --- Auth helper: extract current user (optional — None if no token) ---
+
+from fastapi.security import HTTPAuthorizationCredentials
+
+
+def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db=Depends(get_db),
+) -> User | None:
+    if credentials is None:
+        return None
+    data = decode_token(credentials.credentials)
+    user = db.query(User).filter(User.id == data["user_id"]).first()
+    return user
+
+
+def require_auth(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db=Depends(get_db),
+) -> User:
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="Se requiere autenticación")
+    data = decode_token(credentials.credentials)
+    user = db.query(User).filter(User.id == data["user_id"]).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado")
+    return user
+
+
+# --- Auth endpoints ---
+
+
+@app.post("/auth/register", response_model=AuthResponse)
+def register(data: RegisterRequest, db=Depends(get_db)):
+    existing = db.query(User).filter(User.email == data.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="El email ya está registrado")
+
+    user = User(
+        email=data.email,
+        hashed_password=hash_password(data.password),
+        display_name=data.display_name,
+    )
+    db.add(user)
+    db.flush()
+
+    # Auto-create an athlete linked to this user
+    athlete = Athlete(
+        user_id=user.id,
+        name=data.display_name,
+    )
+    db.add(athlete)
+    db.commit()
+    db.refresh(user)
+    db.refresh(athlete)
+
+    token = create_access_token(user.id, user.email)
+    return AuthResponse(
+        token=token,
+        user_id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        athlete_id=athlete.id,
+    )
+
+
+@app.post("/auth/login", response_model=AuthResponse)
+def login(data: LoginRequest, db=Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user or not verify_password(data.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
+
+    athlete = db.query(Athlete).filter(Athlete.user_id == user.id).first()
+
+    token = create_access_token(user.id, user.email)
+    return AuthResponse(
+        token=token,
+        user_id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        athlete_id=athlete.id if athlete else None,
+    )
+
+
+@app.get("/auth/me", response_model=UserResponse)
+def get_me(user: User = Depends(require_auth)):
+    athlete = user.athlete
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        athlete_id=athlete.id if athlete else None,
+    )
 
 
 # --- Athlete endpoints ---

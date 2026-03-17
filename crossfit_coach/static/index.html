@@ -9,8 +9,61 @@
 </head>
 <body>
 
+<!-- ========== AUTH SCREEN ========== -->
+<div id="auth-screen" class="auth-screen">
+  <div class="auth-container">
+    <div class="auth-brand">
+      <span class="brand-icon" style="font-size:3rem">&#9889;</span>
+      <h1>CrossFit Coach</h1>
+      <p class="auth-subtitle">Tu entrenador personal inteligente</p>
+    </div>
+
+    <!-- Login form -->
+    <div id="auth-login" class="auth-form">
+      <h2>Iniciar Sesi&oacute;n</h2>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="tu@email.com">
+      </div>
+      <div class="form-group">
+        <label>Contrase&ntilde;a</label>
+        <input type="password" id="login-password" placeholder="Tu contrase&ntilde;a">
+      </div>
+      <button class="btn btn-primary btn-lg" onclick="doLogin()">Entrar</button>
+      <p class="auth-switch">
+        &iquest;No tienes cuenta? <a onclick="showRegister()">Reg&iacute;strate</a>
+      </p>
+      <div class="auth-divider"><span>o</span></div>
+      <button class="btn btn-lg" onclick="skipAuth()" style="opacity:0.7">Entrar sin cuenta (modo demo)</button>
+    </div>
+
+    <!-- Register form -->
+    <div id="auth-register" class="auth-form hidden">
+      <h2>Crear Cuenta</h2>
+      <div class="form-group">
+        <label>Nombre</label>
+        <input type="text" id="reg-name" placeholder="Tu nombre">
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="reg-email" placeholder="tu@email.com">
+      </div>
+      <div class="form-group">
+        <label>Contrase&ntilde;a</label>
+        <input type="password" id="reg-password" placeholder="M&iacute;nimo 6 caracteres">
+      </div>
+      <button class="btn btn-primary btn-lg" onclick="doRegister()">Crear Cuenta</button>
+      <p class="auth-switch">
+        &iquest;Ya tienes cuenta? <a onclick="showLogin()">Inicia sesi&oacute;n</a>
+      </p>
+    </div>
+
+    <div id="auth-error" class="auth-error hidden"></div>
+  </div>
+</div>
+
 <!-- ========== NAV ========== -->
-<nav class="navbar">
+<nav class="navbar hidden" id="main-navbar">
   <div class="nav-brand" onclick="navigate('dashboard')">
     <span class="brand-icon">&#9889;</span> CrossFit Coach
   </div>
@@ -22,8 +75,10 @@
     <a class="nav-link" data-view="feed" onclick="navigate('feed')">Feed</a>
   </div>
   <div class="nav-athlete">
+    <span id="nav-user-name" class="nav-user-name"></span>
     <select id="athlete-selector" onchange="switchAthlete()"></select>
     <button class="btn btn-sm btn-accent" onclick="showCreateAthleteModal()">+</button>
+    <button class="btn btn-sm" onclick="doLogout()" title="Cerrar sesi&oacute;n" id="btn-logout" style="display:none">Salir</button>
   </div>
 </nav>
 

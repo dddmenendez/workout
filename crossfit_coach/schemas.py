@@ -2,9 +2,40 @@
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from crossfit_coach.models import FitnessLevel, RPE, TrainingPhase, WorkoutType
+
+
+# --- Auth ---
+
+
+class RegisterRequest(BaseModel):
+    email: str = Field(min_length=5)
+    password: str = Field(min_length=6)
+    display_name: str = Field(min_length=1, max_length=100)
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user_id: int
+    email: str
+    display_name: str
+    athlete_id: int | None = None
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    display_name: str
+    athlete_id: int | None = None
+
+    model_config = {"from_attributes": True}
 
 
 # --- Athlete ---

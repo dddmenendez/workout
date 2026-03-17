@@ -91,11 +91,11 @@ Siguiente: **Fase 6 — Extras opcionales**.
 
 ---
 
-## Fase 6 — Mejoras opcionales (pendiente)
+## Fase 6 — Mejoras opcionales (en progreso)
 
-> Nice-to-have para una experiencia más completa. Todas opcionales.
+> Nice-to-have para una experiencia más completa.
 
-- [ ] **Autenticación (JWT)** — proteger API con tokens, login/registro en frontend
+- [x] **Autenticación (JWT)** — registro, login, token Bearer, pantalla auth en frontend, modo demo sin cuenta
 - [ ] **Exportar a PDF** — descargar WOD del día o plan semanal en PDF
 - [ ] **Notificaciones** — recordatorios de entrenamiento (email o push)
 - [ ] **Vídeos demostrativos** — enlace a vídeo por cada movimiento del WOD
@@ -114,7 +114,7 @@ Siguiente: **Fase 6 — Extras opcionales**.
 | 3 — Progreso | ✅ Completada | Trends, PRs, leaderboard, Rx%, modalidades |
 | 4 — Frontend | ✅ Completada | SPA dark mode, timer, feed social, gráficas |
 | 5 — Testing | ✅ Completada | 38 tests, CI GitHub Actions (lint + pytest) |
-| 6 — Extras | Pendiente | JWT, PDF, PWA, wearables, modo box |
+| 6 — Extras | En progreso | JWT ✅, PDF, PWA, wearables, modo box |
 
 ---
 
@@ -132,6 +132,7 @@ Siguiente: **Fase 6 — Extras opcionales**.
 
 | Tabla | Guarda |
 |-------|--------|
+| `users` | Cuentas: email, contraseña (pbkdf2), nombre, vinculado a athlete |
 | `athletes` | Perfil: nombre, nivel, días/semana, duración sesión, objetivos, lesiones |
 | `equipment` | Equipamiento por atleta (barra, anillas, remo, kettlebell, etc.) |
 | `planned_workouts` | WODs generados: warmup, fuerza, WOD, cooldown, scaling, notas coach |
