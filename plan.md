@@ -24,17 +24,20 @@ El soporte multiusuario existe en el esquema de BD pero **no está expuesto** co
 
 ---
 
-## Fase 2 — Soporte multiusuario real
+## Fase 2 — Soporte multiusuario real ✅ COMPLETADA
 
-> La BD soporta varios atletas pero la API y CLI asumen uno solo.
+> Ahora la app soporta múltiples atletas con gestión completa desde API y CLI.
 
-- [ ] Endpoint `GET /athletes` — listar todos los atletas
-- [ ] Endpoint `PUT /athletes/{id}` — editar perfil (equipo, nivel, objetivos)
-- [ ] Endpoint `DELETE /athletes/{id}` — eliminar atleta
-- [ ] CLI `cfc athletes` — listar atletas registrados
-- [ ] CLI `cfc switch {id|nombre}` — cambiar atleta activo
-- [ ] Persistir atleta activo en config local (`~/.crossfit_coach/config.json`)
-- [ ] Todos los comandos CLI deben respetar el atleta activo sin necesidad de pasar `--athlete-id`
+- [x] Endpoint `GET /athletes` — listar todos los atletas
+- [x] Endpoint `PUT /athletes/{id}` — editar perfil parcial (equipo, nivel, objetivos)
+- [x] Endpoint `DELETE /athletes/{id}` — eliminar atleta con cascade
+- [x] CLI `cfc athletes` — listar atletas con indicador de activo
+- [x] CLI `cfc switch <id>` — cambiar atleta activo
+- [x] Persistir atleta activo en config local (`~/.crossfit_coach/config.json`)
+- [x] Todos los comandos CLI respetan el atleta activo; `--athlete-id` sigue como override
+- [x] `cfc setup` ya no reemplaza el primer atleta; crea uno nuevo y lo establece como activo
+- [x] Schema `AthleteUpdate` para actualizaciones parciales
+- [x] Nuevo módulo `crossfit_coach/config.py` para config local
 
 ---
 
