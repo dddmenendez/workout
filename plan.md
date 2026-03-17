@@ -2,8 +2,8 @@
 
 ## Estado actual
 
-Las **Fases 1, 2 y 3 están completadas**. Persistencia, multiusuario, y analíticas completas funcionando.
-Siguiente: **Fase 4 — Frontend web** o **Fase 5 — Testing y robustez**.
+Las **Fases 1, 2, 3 y 5 están completadas**. Persistencia, multiusuario, analíticas, y testing completos.
+Siguiente: **Fase 4 — Frontend web**.
 
 ---
 
@@ -72,15 +72,18 @@ Siguiente: **Fase 4 — Frontend web** o **Fase 5 — Testing y robustez**.
 
 ---
 
-## Fase 5 — Testing y robustez
+## Fase 5 — Testing y robustez ✅ COMPLETADA
 
-> No hay tests. Cualquier cambio puede romper algo sin aviso.
+> Suite de tests completa con 35 tests pasando, más CI con GitHub Actions.
 
-- [ ] Tests unitarios para `engine.py` (generación de WODs, selección de movimientos, escalado)
-- [ ] Tests unitarios para `periodization.py` (fases, semanas, deload)
-- [ ] Tests de integración para la API (todos los endpoints)
-- [ ] Tests para el flujo completo: crear atleta → generar WOD → guardar → loguear → ver progreso
-- [ ] CI con GitHub Actions: lint + tests en cada push
+- [x] Tests unitarios para `periodization.py` — contexto de entrenamiento, auto-regulación, avance de semana, sugerencia de nivel, helpers
+- [x] Tests de integración para la API — todos los endpoints (CRUD atletas, benchmarks, progreso, trends, leaderboard, PRs, logging, historial, avance semana)
+- [x] Tests flujo completo: crear atleta → generar WOD → guardar → loguear → benchmarks → progreso → trends → PRs → advance week
+- [x] Test aislamiento multiusuario: datos de un atleta no contaminan otro
+- [x] Test generación de plan semanal completo
+- [x] CI con GitHub Actions: ruff lint + pytest en Python 3.11/3.12 en push y PR
+- [x] Fixture compartido: BD SQLite in-memory con `StaticPool` + `TestClient` de Starlette
+- [x] `tests/conftest.py`, `tests/test_periodization.py`, `tests/test_api.py`, `tests/test_full_flow.py`
 
 ---
 
