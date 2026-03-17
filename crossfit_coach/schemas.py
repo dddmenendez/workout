@@ -175,3 +175,66 @@ class ProgressSummary(BaseModel):
     modality_distribution: dict[str, int]
     recent_benchmarks: list[BenchmarkResponse]
     assessment: str  # Progress summary and recommendations
+
+
+# --- Trends ---
+
+
+class WeeklyStats(BaseModel):
+    week_start: date
+    total_workouts: int
+    avg_rpe: float | None
+    rx_percentage: float
+    modality_distribution: dict[str, int]
+
+
+class TrendsResponse(BaseModel):
+    athlete_id: int
+    weeks: list[WeeklyStats]
+
+
+# --- Benchmark history ---
+
+
+class BenchmarkEntry(BaseModel):
+    value: str
+    recorded_at: date
+
+
+class BenchmarkHistory(BaseModel):
+    name: str
+    entries: list[BenchmarkEntry]
+
+
+class BenchmarkHistoryResponse(BaseModel):
+    athlete_id: int
+    benchmarks: list[BenchmarkHistory]
+
+
+# --- Leaderboard ---
+
+
+class LeaderboardEntry(BaseModel):
+    athlete_id: int
+    athlete_name: str
+    value: str
+    recorded_at: date
+
+
+class LeaderboardResponse(BaseModel):
+    benchmark_name: str
+    entries: list[LeaderboardEntry]
+
+
+# --- Personal Records ---
+
+
+class PersonalRecord(BaseModel):
+    name: str
+    value: str
+    recorded_at: date
+
+
+class PersonalRecordsResponse(BaseModel):
+    athlete_id: int
+    records: list[PersonalRecord]

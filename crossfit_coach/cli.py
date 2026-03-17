@@ -1,7 +1,8 @@
 """CLI interface for CrossFit Coach - quick terminal-based usage."""
 
 import json
-from datetime import date
+from collections import defaultdict
+from datetime import date, datetime, timedelta
 
 import typer
 from rich.console import Console
@@ -368,6 +369,16 @@ def progress(
     ctx = get_current_training_context(db, athlete)
     profile = _athlete_to_profile(athlete)
 
+    # Calculate Rx%
+    total_logs = db.query(WorkoutLog).filter(WorkoutLog.athlete_id == athlete.id).count()
+    rx_count = db.query(WorkoutLog).filter(WorkoutLog.athlete_id == athlete.id, WorkoutLog.went_rx.is_(True)).count()
+    rx_pct = (rx_count / total_logs * 100) if total_logs > 0 else 0.0
+
+    # Modality distribution as percentages
+    mod = ctx["modality_distribution"]
+    mod_total = sum(mod.values()) or 1
+    mod_str = f"M:{mod['monostructural']*100//mod_total}% G:{mod['gymnastics']*100//mod_total}% W:{mod['weightlifting']*100//mod_total}%"
+
     # Stats table
     table = Table(title=f"Progreso de {athlete.name}")
     table.add_column("Métrica", style="cyan")
@@ -376,7 +387,8 @@ def progress(
     table.add_row("Fase actual", ctx["phase"])
     table.add_row("Semana", str(ctx["week_number"]))
     table.add_row("RPE promedio (última semana)", str(ctx["avg_rpe"] or "N/A"))
-    table.add_row("Distribución M/G/W", json.dumps(ctx["modality_distribution"]))
+    table.add_row("Rx%", f"{rx_pct:.1f}%")
+    table.add_row("Distribución M/G/W", mod_str)
     console.print(table)
 
     # Benchmarks
@@ -414,6 +426,148 @@ def profile(
     console.print(f"  Objetivos: {athlete.goals or 'N/A'}")
     console.print(f"  Limitaciones: {athlete.injuries_limitations or 'N/A'}")
     console.print(f"  Equipamiento: {', '.join(eq.name for eq in athlete.equipment)}")
+
+
+@app.command()
+def trends(
+    weeks: int = typer.Option(8, "--weeks", "-w", help="Número de semanas a mostrar"),
+    athlete_id: int = typer.Option(None, "--athlete", "-a", help="ID del atleta"),
+):
+    """Ver tendencias de progreso semanal con gráfica en terminal."""
+    db = get_session()
+    athlete = _get_athlete(db, athlete_id)
+
+    logs = (
+        db.query(WorkoutLog)
+        .filter(WorkoutLog.athlete_id == athlete.id)
+        .order_by(WorkoutLog.completed_at.asc())
+        .all()
+    )
+
+    if not logs:
+        console.print("[yellow]No hay logs registrados. Usa 'cfc log' después de entrenar.[/yellow]")
+        raise typer.Exit(0)
+
+    # Group by week
+    weekly: dict[date, list] = defaultdict(list)
+    for log in logs:
+        d = log.completed_at.date() if isinstance(log.completed_at, datetime) else log.completed_at
+        ws = d - timedelta(days=d.weekday())
+        weekly[ws].append(log)
+
+    sorted_weeks = sorted(weekly.keys(), reverse=True)[:weeks]
+    sorted_weeks.reverse()
+
+    # Table
+    table = Table(title=f"Tendencias de {athlete.name} (últimas {len(sorted_weeks)} semanas)")
+    table.add_column("Semana", style="cyan")
+    table.add_column("WODs", style="green", justify="right")
+    table.add_column("RPE Prom", style="yellow", justify="right")
+    table.add_column("Rx%", style="magenta", justify="right")
+    table.add_column("RPE", style="dim")
+
+    for ws in sorted_weeks:
+        week_logs = weekly[ws]
+        rpes = [l.rpe for l in week_logs if l.rpe is not None]
+        avg_rpe = sum(rpes) / len(rpes) if rpes else 0
+        rx_count = sum(1 for l in week_logs if l.went_rx)
+        rx_pct = (rx_count / len(week_logs) * 100) if week_logs else 0
+
+        # Simple bar chart for RPE
+        bar_len = int(avg_rpe * 2) if avg_rpe else 0
+        bar = "█" * bar_len + "░" * (20 - bar_len)
+
+        table.add_row(
+            ws.strftime("%Y-%m-%d"),
+            str(len(week_logs)),
+            f"{avg_rpe:.1f}" if rpes else "—",
+            f"{rx_pct:.0f}%",
+            bar,
+        )
+
+    console.print(table)
+
+    # Modality distribution across all time
+    mod_counts: dict[str, int] = {"monostructural": 0, "gymnastics": 0, "weightlifting": 0}
+    for log in logs:
+        if log.planned_workout and log.planned_workout.modalities:
+            for mod in log.planned_workout.modalities.split(","):
+                mod = mod.strip()
+                if mod in mod_counts:
+                    mod_counts[mod] += 1
+
+    mod_total = sum(mod_counts.values()) or 1
+    console.print(f"\n[bold]Distribución de modalidades (total):[/bold]")
+    for mod_name, count in mod_counts.items():
+        pct = count * 100 // mod_total
+        bar = "█" * (pct // 2) + "░" * (50 - pct // 2)
+        label = {"monostructural": "M (Mono)", "gymnastics": "G (Gimn)", "weightlifting": "W (Pesas)"}
+        console.print(f"  {label.get(mod_name, mod_name):12s} {bar} {pct}%")
+
+
+@app.command()
+def prs(
+    athlete_id: int = typer.Option(None, "--athlete", "-a", help="ID del atleta"),
+):
+    """Ver records personales (PRs) con fechas."""
+    db = get_session()
+    athlete = _get_athlete(db, athlete_id)
+
+    from sqlalchemy import func
+
+    subquery = (
+        db.query(
+            Benchmark.name,
+            func.max(Benchmark.recorded_at).label("latest"),
+        )
+        .filter(Benchmark.athlete_id == athlete.id)
+        .group_by(Benchmark.name)
+        .subquery()
+    )
+
+    results = (
+        db.query(Benchmark)
+        .join(
+            subquery,
+            (Benchmark.name == subquery.c.name)
+            & (Benchmark.recorded_at == subquery.c.latest)
+            & (Benchmark.athlete_id == athlete.id),
+        )
+        .order_by(Benchmark.name)
+        .all()
+    )
+
+    if not results:
+        console.print("[yellow]No hay benchmarks registrados. Usa: cfc benchmark -n 'Fran' -v '3:45'[/yellow]")
+        raise typer.Exit(0)
+
+    table = Table(title=f"Records personales de {athlete.name}")
+    table.add_column("Benchmark", style="bold cyan")
+    table.add_column("Mejor resultado", style="green")
+    table.add_column("Fecha", style="dim")
+
+    for bm in results:
+        table.add_row(bm.name, bm.value, str(bm.recorded_at))
+
+    console.print(table)
+
+    # Show history for each benchmark
+    all_bms = (
+        db.query(Benchmark)
+        .filter(Benchmark.athlete_id == athlete.id)
+        .order_by(Benchmark.name, Benchmark.recorded_at.asc())
+        .all()
+    )
+
+    grouped: dict[str, list] = defaultdict(list)
+    for bm in all_bms:
+        grouped[bm.name].append(bm)
+
+    for name, entries in grouped.items():
+        if len(entries) > 1:
+            console.print(f"\n[bold]{name}[/bold] — evolución:")
+            for entry in entries:
+                console.print(f"  {entry.recorded_at}  →  {entry.value}")
 
 
 @app.command()

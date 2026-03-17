@@ -2,9 +2,8 @@
 
 ## Estado actual
 
-El backend (FastAPI + SQLite + CLI) está funcional como MVP.
-La **Fase 1 está completada**: los entrenamientos se guardan automáticamente en BD.
-El soporte multiusuario existe en el esquema de BD pero **no está expuesto** correctamente en CLI ni API.
+Las **Fases 1, 2 y 3 están completadas**. Persistencia, multiusuario, y analíticas completas funcionando.
+Siguiente: **Fase 4 — Frontend web** o **Fase 5 — Testing y robustez**.
 
 ---
 
@@ -41,17 +40,19 @@ El soporte multiusuario existe en el esquema de BD pero **no está expuesto** co
 
 ---
 
-## Fase 3 — Progreso y analíticas mejoradas
+## Fase 3 — Progreso y analíticas mejoradas ✅ COMPLETADA
 
-> Existe tracking básico (RPE, benchmarks) pero falta visibilidad real del progreso.
+> Tracking completo con tendencias, PRs, leaderboard y distribución real de modalidades.
 
-- [ ] Corregir cálculo de `rx_percentage` (actualmente hardcodeado a `0.0` en `api.py`)
-- [ ] Endpoint `GET /progress/{id}/trends` — evolución semanal de RPE, volumen, Rx%
-- [ ] Endpoint `GET /progress/{id}/benchmarks` — evolución temporal de cada benchmark
-- [ ] Comparativa entre atletas: `GET /leaderboard?benchmark=Fran`
-- [ ] CLI `cfc trends` — mostrar gráfica de progreso en terminal (con Rich)
-- [ ] Histórico de PRs (records personales) con fechas
-- [ ] Distribución de modalidades (M/G/W) por semana/mes con porcentajes reales
+- [x] Corregir cálculo de `rx_percentage` (ahora se calcula desde la BD real)
+- [x] Endpoint `GET /progress/{id}/trends` — evolución semanal de RPE, volumen, Rx%, modalidades
+- [x] Endpoint `GET /progress/{id}/benchmarks` — evolución temporal de cada benchmark agrupada
+- [x] Comparativa entre atletas: `GET /leaderboard?benchmark=Fran`
+- [x] Endpoint `GET /progress/{id}/prs` — records personales con fechas
+- [x] CLI `cfc trends` — gráfica de RPE, Rx%, modalidades en terminal con barras
+- [x] CLI `cfc prs` — tabla de PRs + historial de evolución por benchmark
+- [x] `cfc progress` muestra Rx% real y distribución M/G/W con porcentajes
+- [x] Schemas: `WeeklyStats`, `TrendsResponse`, `BenchmarkHistory`, `LeaderboardEntry`, `PersonalRecord`, etc.
 
 ---
 

@@ -1,7 +1,8 @@
 """FastAPI endpoints for the CrossFit Coach application."""
 
 from contextlib import asynccontextmanager
-from datetime import date
+from collections import defaultdict
+from datetime import date, datetime, timedelta
 
 from fastapi import Depends, FastAPI, HTTPException
 
@@ -23,11 +24,20 @@ from crossfit_coach.schemas import (
     AthleteResponse,
     AthleteUpdate,
     BenchmarkCreate,
+    BenchmarkEntry,
+    BenchmarkHistory,
+    BenchmarkHistoryResponse,
     BenchmarkResponse,
+    LeaderboardEntry,
+    LeaderboardResponse,
+    PersonalRecord,
+    PersonalRecordsResponse,
     PlannedWorkoutResponse,
     ProgressSummary,
+    TrendsResponse,
     WeekPlanRequest,
     WeekPlanResponse,
+    WeeklyStats,
     WorkoutHistoryResponse,
     WorkoutLogCreate,
     WorkoutLogResponse,
@@ -439,18 +449,187 @@ def get_progress(athlete_id: int, db=Depends(get_db)):
         .all()
     )
 
+    total_logs = db.query(WorkoutLog).filter(WorkoutLog.athlete_id == athlete_id).count()
+    rx_count = db.query(WorkoutLog).filter(WorkoutLog.athlete_id == athlete_id, WorkoutLog.went_rx.is_(True)).count()
+    rx_pct = (rx_count / total_logs * 100) if total_logs > 0 else 0.0
+
     return ProgressSummary(
         total_workouts=ctx["total_workouts"],
         current_phase=ctx["phase"],
         current_week=ctx["week_number"],
         avg_rpe_last_week=ctx["avg_rpe"],
-        rx_percentage=0.0,
+        rx_percentage=round(rx_pct, 1),
         modality_distribution=ctx["modality_distribution"],
         recent_benchmarks=[
             BenchmarkResponse(name=b.name, value=b.value, recorded_at=b.recorded_at)
             for b in recent_benchmarks
         ],
         assessment=assessment,
+    )
+
+
+# --- Trends ---
+
+
+def _week_start(dt: datetime) -> date:
+    """Return the Monday of the week containing dt."""
+    d = dt.date() if isinstance(dt, datetime) else dt
+    return d - timedelta(days=d.weekday())
+
+
+@app.get("/progress/{athlete_id}/trends", response_model=TrendsResponse)
+def get_trends(athlete_id: int, weeks: int = 8, db=Depends(get_db)):
+    athlete = db.get(Athlete, athlete_id)
+    if not athlete:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
+    logs = (
+        db.query(WorkoutLog)
+        .filter(WorkoutLog.athlete_id == athlete_id)
+        .order_by(WorkoutLog.completed_at.asc())
+        .all()
+    )
+
+    weekly: dict[date, list[WorkoutLog]] = defaultdict(list)
+    for log in logs:
+        ws = _week_start(log.completed_at)
+        weekly[ws].append(log)
+
+    sorted_weeks = sorted(weekly.keys(), reverse=True)[:weeks]
+    sorted_weeks.reverse()
+
+    result = []
+    for ws in sorted_weeks:
+        week_logs = weekly[ws]
+        rpes = [l.rpe for l in week_logs if l.rpe is not None]
+        rx_count = sum(1 for l in week_logs if l.went_rx)
+        rx_pct = (rx_count / len(week_logs) * 100) if week_logs else 0.0
+
+        mod_counts: dict[str, int] = {"monostructural": 0, "gymnastics": 0, "weightlifting": 0}
+        for l in week_logs:
+            if l.planned_workout and l.planned_workout.modalities:
+                for mod in l.planned_workout.modalities.split(","):
+                    mod = mod.strip()
+                    if mod in mod_counts:
+                        mod_counts[mod] += 1
+
+        result.append(WeeklyStats(
+            week_start=ws,
+            total_workouts=len(week_logs),
+            avg_rpe=round(sum(rpes) / len(rpes), 1) if rpes else None,
+            rx_percentage=round(rx_pct, 1),
+            modality_distribution=mod_counts,
+        ))
+
+    return TrendsResponse(athlete_id=athlete_id, weeks=result)
+
+
+# --- Benchmark history ---
+
+
+@app.get("/progress/{athlete_id}/benchmarks", response_model=BenchmarkHistoryResponse)
+def get_benchmark_history(athlete_id: int, db=Depends(get_db)):
+    athlete = db.get(Athlete, athlete_id)
+    if not athlete:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
+    benchmarks = (
+        db.query(Benchmark)
+        .filter(Benchmark.athlete_id == athlete_id)
+        .order_by(Benchmark.name, Benchmark.recorded_at.asc())
+        .all()
+    )
+
+    grouped: dict[str, list[BenchmarkEntry]] = defaultdict(list)
+    for bm in benchmarks:
+        grouped[bm.name].append(BenchmarkEntry(value=bm.value, recorded_at=bm.recorded_at))
+
+    return BenchmarkHistoryResponse(
+        athlete_id=athlete_id,
+        benchmarks=[BenchmarkHistory(name=name, entries=entries) for name, entries in grouped.items()],
+    )
+
+
+# --- Leaderboard ---
+
+
+@app.get("/leaderboard", response_model=LeaderboardResponse)
+def get_leaderboard(benchmark: str, db=Depends(get_db)):
+    # Get the latest entry per athlete for the given benchmark
+    from sqlalchemy import func
+
+    subquery = (
+        db.query(
+            Benchmark.athlete_id,
+            func.max(Benchmark.recorded_at).label("latest"),
+        )
+        .filter(Benchmark.name == benchmark)
+        .group_by(Benchmark.athlete_id)
+        .subquery()
+    )
+
+    results = (
+        db.query(Benchmark, Athlete.name)
+        .join(Athlete, Athlete.id == Benchmark.athlete_id)
+        .join(
+            subquery,
+            (Benchmark.athlete_id == subquery.c.athlete_id)
+            & (Benchmark.recorded_at == subquery.c.latest)
+            & (Benchmark.name == benchmark),
+        )
+        .all()
+    )
+
+    entries = [
+        LeaderboardEntry(
+            athlete_id=bm.athlete_id,
+            athlete_name=athlete_name,
+            value=bm.value,
+            recorded_at=bm.recorded_at,
+        )
+        for bm, athlete_name in results
+    ]
+
+    return LeaderboardResponse(benchmark_name=benchmark, entries=entries)
+
+
+# --- Personal Records ---
+
+
+@app.get("/progress/{athlete_id}/prs", response_model=PersonalRecordsResponse)
+def get_personal_records(athlete_id: int, db=Depends(get_db)):
+    athlete = db.get(Athlete, athlete_id)
+    if not athlete:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
+    # Get the latest entry for each benchmark name
+    from sqlalchemy import func
+
+    subquery = (
+        db.query(
+            Benchmark.name,
+            func.max(Benchmark.recorded_at).label("latest"),
+        )
+        .filter(Benchmark.athlete_id == athlete_id)
+        .group_by(Benchmark.name)
+        .subquery()
+    )
+
+    results = (
+        db.query(Benchmark)
+        .join(
+            subquery,
+            (Benchmark.name == subquery.c.name)
+            & (Benchmark.recorded_at == subquery.c.latest)
+            & (Benchmark.athlete_id == athlete_id),
+        )
+        .order_by(Benchmark.name)
+        .all()
+    )
+
+    return PersonalRecordsResponse(
+        athlete_id=athlete_id,
+        records=[PersonalRecord(name=bm.name, value=bm.value, recorded_at=bm.recorded_at) for bm in results],
     )
 
 
