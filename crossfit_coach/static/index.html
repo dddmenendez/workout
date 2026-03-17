@@ -277,8 +277,30 @@
 <!-- FEED -->
 <main id="view-feed" class="view">
   <div class="card">
-    <h2>Feed de Entrenamientos</h2>
-    <p class="feed-subtitle">Ve lo que entrenan tus amigos</p>
+    <div class="feed-header-bar">
+      <div>
+        <h2>Feed de Entrenamientos</h2>
+        <p class="feed-subtitle">Ve lo que entrenan tus amigos</p>
+      </div>
+      <div class="feed-controls">
+        <div class="feed-toggle">
+          <button class="btn btn-sm feed-tab active" id="feed-tab-all" onclick="switchFeedTab('all')">Todos</button>
+          <button class="btn btn-sm feed-tab" id="feed-tab-following" onclick="switchFeedTab('following')">Siguiendo</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Following management -->
+    <div id="feed-follow-panel" class="follow-panel hidden">
+      <div class="follow-bar">
+        <select id="follow-select" class="follow-select">
+          <option value="">Seguir a un atleta...</option>
+        </select>
+        <button class="btn btn-sm btn-accent" onclick="doFollow()">Seguir</button>
+      </div>
+      <div id="following-list" class="following-chips"></div>
+    </div>
+
     <div id="feed-list" class="feed-list"></div>
   </div>
 </main>

@@ -95,7 +95,27 @@ class Athlete(Base):
     benchmarks: Mapped[list["Benchmark"]] = relationship(back_populates="athlete", cascade="all, delete-orphan")
     workout_logs: Mapped[list["WorkoutLog"]] = relationship(back_populates="athlete", cascade="all, delete-orphan")
     training_plan: Mapped[list["TrainingWeek"]] = relationship(back_populates="athlete", cascade="all, delete-orphan")
+
+    following: Mapped[list["Follow"]] = relationship(
+        foreign_keys="Follow.follower_id", back_populates="follower", cascade="all, delete-orphan"
+    )
+    followers: Mapped[list["Follow"]] = relationship(
+        foreign_keys="Follow.followed_id", back_populates="followed", cascade="all, delete-orphan"
+    )
     planned_workouts: Mapped[list["PlannedWorkout"]] = relationship(back_populates="athlete", cascade="all, delete-orphan")
+
+
+class Follow(Base):
+    """Athlete A follows Athlete B."""
+    __tablename__ = "follows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    follower_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"))
+    followed_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    follower: Mapped["Athlete"] = relationship(foreign_keys=[follower_id], back_populates="following")
+    followed: Mapped["Athlete"] = relationship(foreign_keys=[followed_id], back_populates="followers")
 
 
 class Equipment(Base):

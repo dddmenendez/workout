@@ -23,7 +23,7 @@ from crossfit_coach.engine import (
     generate_week_plan,
     generate_workout,
 )
-from crossfit_coach.models import Athlete, Benchmark, Equipment, PlannedWorkout, TrainingWeek, User, WorkoutLog
+from crossfit_coach.models import Athlete, Benchmark, Equipment, Follow, PlannedWorkout, TrainingWeek, User, WorkoutLog
 from crossfit_coach.periodization import (
     advance_week,
     get_current_training_context,
@@ -41,6 +41,9 @@ from crossfit_coach.schemas import (
     BenchmarkResponse,
     FeedEntry,
     FeedResponse,
+    FollowListResponse,
+    FollowRequest,
+    FollowResponse,
     LeaderboardEntry,
     LeaderboardResponse,
     LoginRequest,
@@ -767,6 +770,45 @@ def advance_training_week(athlete_id: int, db=Depends(get_db)):
 # --- Social Feed ---
 
 
+def _build_feed_entry(log: WorkoutLog, athlete: Athlete) -> FeedEntry:
+    wod_summary = None
+    wtype = None
+    pw = log.planned_workout
+    warmup = strength = wod_full = cooldown = scaling = coaches = None
+    workout_id = None
+
+    if pw:
+        wod_summary = (pw.wod or "")[:120]
+        wtype = pw.workout_type.value if pw.workout_type else None
+        workout_id = pw.id
+        warmup = pw.warmup
+        strength = pw.strength
+        wod_full = pw.wod
+        cooldown = pw.cooldown
+        scaling = pw.scaling_notes
+        coaches = pw.coaches_notes
+
+    return FeedEntry(
+        athlete_id=log.athlete_id,
+        athlete_name=athlete.name if athlete else "Unknown",
+        workout_type=wtype,
+        wod_summary=wod_summary,
+        score=log.score,
+        rpe=log.rpe,
+        went_rx=log.went_rx,
+        duration_seconds=log.duration_seconds,
+        completed_at=log.completed_at,
+        notes=log.notes,
+        workout_id=workout_id,
+        warmup=warmup,
+        strength=strength,
+        wod_full=wod_full,
+        cooldown=cooldown,
+        scaling=scaling,
+        coaches_notes=coaches,
+    )
+
+
 @app.get("/feed", response_model=FeedResponse)
 def get_feed(limit: int = 50, offset: int = 0, db=Depends(get_db)):
     """Public feed: recent workouts from all athletes."""
@@ -778,30 +820,102 @@ def get_feed(limit: int = 50, offset: int = 0, db=Depends(get_db)):
         .limit(limit)
         .all()
     )
+    entries = []
+    for log in logs:
+        athlete = db.get(Athlete, log.athlete_id)
+        entries.append(_build_feed_entry(log, athlete))
+
+    return FeedResponse(entries=entries, total=total)
+
+
+@app.get("/feed/{athlete_id}/following", response_model=FeedResponse)
+def get_following_feed(athlete_id: int, limit: int = 50, offset: int = 0, db=Depends(get_db)):
+    """Feed filtered to athletes that athlete_id follows."""
+    followed_ids = [
+        f.followed_id
+        for f in db.query(Follow).filter(Follow.follower_id == athlete_id).all()
+    ]
+    if not followed_ids:
+        return FeedResponse(entries=[], total=0)
+
+    query = db.query(WorkoutLog).filter(WorkoutLog.athlete_id.in_(followed_ids))
+    total = query.count()
+    logs = query.order_by(WorkoutLog.completed_at.desc()).offset(offset).limit(limit).all()
 
     entries = []
     for log in logs:
         athlete = db.get(Athlete, log.athlete_id)
-        wod_summary = None
-        wtype = None
-        if log.planned_workout:
-            wod_summary = (log.planned_workout.wod or "")[:120]
-            wtype = log.planned_workout.workout_type.value if log.planned_workout.workout_type else None
-
-        entries.append(FeedEntry(
-            athlete_id=log.athlete_id,
-            athlete_name=athlete.name if athlete else "Unknown",
-            workout_type=wtype,
-            wod_summary=wod_summary,
-            score=log.score,
-            rpe=log.rpe,
-            went_rx=log.went_rx,
-            duration_seconds=log.duration_seconds,
-            completed_at=log.completed_at,
-            notes=log.notes,
-        ))
+        entries.append(_build_feed_entry(log, athlete))
 
     return FeedResponse(entries=entries, total=total)
+
+
+# --- Follow ---
+
+
+@app.post("/athletes/{athlete_id}/follow", response_model=FollowResponse)
+def follow_athlete(athlete_id: int, data: FollowRequest, db=Depends(get_db)):
+    """Athlete follows another athlete."""
+    if data.follower_id == data.followed_id:
+        raise HTTPException(status_code=400, detail="No puedes seguirte a ti mismo")
+
+    # Check both athletes exist
+    if not db.get(Athlete, data.follower_id) or not db.get(Athlete, data.followed_id):
+        raise HTTPException(status_code=404, detail="Atleta no encontrado")
+
+    existing = db.query(Follow).filter(
+        Follow.follower_id == data.follower_id,
+        Follow.followed_id == data.followed_id,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Ya sigues a este atleta")
+
+    follow = Follow(follower_id=data.follower_id, followed_id=data.followed_id)
+    db.add(follow)
+    db.commit()
+    db.refresh(follow)
+
+    followed = db.get(Athlete, data.followed_id)
+    return FollowResponse(
+        id=follow.id,
+        follower_id=follow.follower_id,
+        followed_id=follow.followed_id,
+        followed_name=followed.name,
+    )
+
+
+@app.delete("/athletes/{athlete_id}/follow/{followed_id}")
+def unfollow_athlete(athlete_id: int, followed_id: int, db=Depends(get_db)):
+    follow = db.query(Follow).filter(
+        Follow.follower_id == athlete_id,
+        Follow.followed_id == followed_id,
+    ).first()
+    if not follow:
+        raise HTTPException(status_code=404, detail="No sigues a ese atleta")
+    db.delete(follow)
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/athletes/{athlete_id}/follows", response_model=FollowListResponse)
+def get_follows(athlete_id: int, db=Depends(get_db)):
+    following = db.query(Follow).filter(Follow.follower_id == athlete_id).all()
+    followers = db.query(Follow).filter(Follow.followed_id == athlete_id).all()
+
+    return FollowListResponse(
+        following=[
+            FollowResponse(
+                id=f.id, follower_id=f.follower_id, followed_id=f.followed_id,
+                followed_name=db.get(Athlete, f.followed_id).name,
+            ) for f in following
+        ],
+        followers=[
+            FollowResponse(
+                id=f.id, follower_id=f.follower_id, followed_id=f.followed_id,
+                followed_name=db.get(Athlete, f.follower_id).name,
+            ) for f in followers
+        ],
+    )
 
 
 # --- Static frontend ---

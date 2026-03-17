@@ -603,19 +603,50 @@ async function loadProgress() {
 }
 
 /* ============ FEED ============ */
+let feedTab = 'all';
+let followingList = [];
+
 async function loadFeed() {
   try {
-    const data = await api('/feed?limit=30');
+    const url = feedTab === 'following' && currentAthleteId
+      ? `/feed/${currentAthleteId}/following?limit=30`
+      : '/feed?limit=30';
+    const data = await api(url);
     const list = document.getElementById('feed-list');
 
+    // Show/hide follow panel
+    const followPanel = document.getElementById('feed-follow-panel');
+    if (feedTab === 'following') {
+      followPanel.classList.remove('hidden');
+      await loadFollowing();
+    } else {
+      followPanel.classList.add('hidden');
+    }
+
     if (data.entries.length === 0) {
-      list.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No hay entrenamientos en el feed a\u00fan.</p>';
+      const msg = feedTab === 'following'
+        ? 'No hay entrenamientos de las personas que sigues. Sigue a alguien para ver su actividad.'
+        : 'No hay entrenamientos en el feed a\u00fan.';
+      list.innerHTML = `<p style="color:var(--text-muted);text-align:center;padding:40px">${msg}</p>`;
       return;
     }
 
-    list.innerHTML = data.entries.map(e => {
+    list.innerHTML = data.entries.map((e, i) => {
       const initial = (e.athlete_name || '?')[0].toUpperCase();
       const wodText = e.wod_summary || 'Entrenamiento completado';
+      const hasDetails = e.wod_full || e.warmup || e.strength;
+      const expandBtn = hasDetails
+        ? `<button class="btn btn-sm feed-expand-btn" onclick="toggleFeedDetail(${i})">Ver sesi\u00f3n completa</button>`
+        : '';
+
+      const detailSections = [];
+      if (e.warmup) detailSections.push(`<div class="feed-detail-section"><h5>Warm-up</h5><pre>${e.warmup}</pre></div>`);
+      if (e.strength) detailSections.push(`<div class="feed-detail-section"><h5>Fuerza / Skill</h5><pre>${e.strength}</pre></div>`);
+      if (e.wod_full) detailSections.push(`<div class="feed-detail-section feed-detail-wod"><h5>WOD</h5><pre>${e.wod_full}</pre></div>`);
+      if (e.scaling) detailSections.push(`<div class="feed-detail-section"><h5>Escalado</h5><pre>${e.scaling}</pre></div>`);
+      if (e.cooldown) detailSections.push(`<div class="feed-detail-section"><h5>Cooldown</h5><pre>${e.cooldown}</pre></div>`);
+      if (e.coaches_notes) detailSections.push(`<div class="feed-detail-section"><h5>Notas del Coach</h5><p>${e.coaches_notes}</p></div>`);
+
       return `
         <div class="feed-item">
           <div class="feed-header">
@@ -634,11 +665,92 @@ async function loadFeed() {
             ${e.score ? `<span>Score: <b class="feed-stat-val">${e.score}</b></span>` : ''}
           </div>
           ${e.notes ? `<p style="margin-top:8px;font-size:0.8rem;color:var(--text-muted);font-style:italic">"${e.notes}"</p>` : ''}
+          ${expandBtn}
+          <div class="feed-detail hidden" id="feed-detail-${i}">
+            ${detailSections.join('')}
+          </div>
         </div>
       `;
     }).join('');
   } catch (e) {
     console.error('Feed error:', e);
+  }
+}
+
+function toggleFeedDetail(idx) {
+  const el = document.getElementById(`feed-detail-${idx}`);
+  const btn = el.previousElementSibling;
+  el.classList.toggle('hidden');
+  btn.textContent = el.classList.contains('hidden') ? 'Ver sesi\u00f3n completa' : 'Ocultar sesi\u00f3n';
+}
+
+function switchFeedTab(tab) {
+  feedTab = tab;
+  document.getElementById('feed-tab-all').classList.toggle('active', tab === 'all');
+  document.getElementById('feed-tab-following').classList.toggle('active', tab === 'following');
+  loadFeed();
+}
+
+/* ============ FOLLOW SYSTEM ============ */
+
+async function loadFollowing() {
+  if (!currentAthleteId) return;
+  try {
+    const data = await api(`/athletes/${currentAthleteId}/follows`);
+    followingList = data.following;
+
+    // Render chips
+    const container = document.getElementById('following-list');
+    if (followingList.length === 0) {
+      container.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem">No sigues a nadie a\u00fan</span>';
+    } else {
+      container.innerHTML = followingList.map(f => `
+        <span class="follow-chip">
+          ${f.followed_name}
+          <button class="follow-chip-x" onclick="doUnfollow(${f.followed_id})">&times;</button>
+        </span>
+      `).join('');
+    }
+
+    // Populate follow select (exclude self + already following)
+    const followedIds = new Set(followingList.map(f => f.followed_id));
+    followedIds.add(currentAthleteId);
+    const allAthletes = await api('/athletes');
+    const sel = document.getElementById('follow-select');
+    sel.innerHTML = '<option value="">Seguir a un atleta...</option>' +
+      allAthletes.filter(a => !followedIds.has(a.id)).map(a =>
+        `<option value="${a.id}">${a.name}</option>`
+      ).join('');
+  } catch (e) {
+    console.error('Follow load error:', e);
+  }
+}
+
+async function doFollow() {
+  const sel = document.getElementById('follow-select');
+  const followedId = parseInt(sel.value);
+  if (!followedId || !currentAthleteId) return;
+
+  try {
+    await api(`/athletes/${currentAthleteId}/follow`, {
+      method: 'POST',
+      body: { follower_id: currentAthleteId, followed_id: followedId },
+    });
+    toast(`Ahora sigues a este atleta`);
+    loadFeed();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function doUnfollow(followedId) {
+  if (!currentAthleteId) return;
+  try {
+    await api(`/athletes/${currentAthleteId}/follow/${followedId}`, { method: 'DELETE' });
+    toast('Dejaste de seguir');
+    loadFeed();
+  } catch (e) {
+    toast(e.message);
   }
 }
 

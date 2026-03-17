@@ -163,11 +163,39 @@ class FeedEntry(BaseModel):
     duration_seconds: int | None = None
     completed_at: datetime
     notes: str | None = None
+    # Full workout details (for expandable view)
+    workout_id: int | None = None
+    warmup: str | None = None
+    strength: str | None = None
+    wod_full: str | None = None
+    cooldown: str | None = None
+    scaling: str | None = None
+    coaches_notes: str | None = None
 
 
 class FeedResponse(BaseModel):
     entries: list[FeedEntry]
     total: int
+
+
+# --- Follow ---
+
+
+class FollowRequest(BaseModel):
+    follower_id: int
+    followed_id: int
+
+
+class FollowResponse(BaseModel):
+    id: int
+    follower_id: int
+    followed_id: int
+    followed_name: str
+
+
+class FollowListResponse(BaseModel):
+    following: list[FollowResponse]
+    followers: list[FollowResponse]
 
 
 # --- Benchmark ---
