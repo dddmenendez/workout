@@ -12,7 +12,7 @@ from crossfit_coach.engine import (
     generate_week_plan,
     generate_workout,
 )
-from crossfit_coach.models import Athlete, Benchmark, Equipment, WorkoutLog
+from crossfit_coach.models import Athlete, Benchmark, Equipment, PlannedWorkout, TrainingWeek, WorkoutLog
 from crossfit_coach.periodization import (
     advance_week,
     get_current_training_context,
@@ -23,9 +23,11 @@ from crossfit_coach.schemas import (
     AthleteResponse,
     BenchmarkCreate,
     BenchmarkResponse,
+    PlannedWorkoutResponse,
     ProgressSummary,
     WeekPlanRequest,
     WeekPlanResponse,
+    WorkoutHistoryResponse,
     WorkoutLogCreate,
     WorkoutLogResponse,
     WorkoutRequest,
@@ -122,6 +124,27 @@ def get_athlete(athlete_id: int, db=Depends(get_db)):
 # --- Workout generation ---
 
 
+def _save_workout(db, athlete_id: int, workout: WorkoutResponse, day_of_week: int, week_id: int | None = None) -> PlannedWorkout:
+    """Persist a generated workout to the database."""
+    pw = PlannedWorkout(
+        athlete_id=athlete_id,
+        week_id=week_id,
+        day_of_week=day_of_week,
+        workout_type=workout.wod_type,
+        description=workout.wod,
+        warmup=workout.warmup,
+        strength=workout.strength_or_skill,
+        wod=workout.wod,
+        cooldown=workout.cooldown,
+        modalities=",".join(workout.modalities),
+        scaling_notes=workout.scaling_notes,
+        coaches_notes=workout.coaches_notes,
+        target_time_domain=workout.target_time_domain,
+    )
+    db.add(pw)
+    return pw
+
+
 @app.post("/workouts/generate", response_model=WorkoutResponse)
 def generate_single_workout(req: WorkoutRequest, db=Depends(get_db)):
     athlete = db.get(Athlete, req.athlete_id)
@@ -141,9 +164,14 @@ def generate_single_workout(req: WorkoutRequest, db=Depends(get_db)):
         training_ctx["exclude_movements"] = req.exclude_movements
 
     days = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-    training_ctx["day_of_week"] = days[req.date.weekday()]
+    training_ctx["day_of_week"] = days[req.workout_date.weekday()]
 
-    return generate_workout(profile, training_ctx)
+    result = generate_workout(profile, training_ctx)
+
+    _save_workout(db, athlete.id, result, req.workout_date.isoweekday())
+    db.commit()
+
+    return result
 
 
 @app.post("/workouts/week", response_model=WeekPlanResponse)
@@ -155,7 +183,94 @@ def generate_weekly_plan(req: WeekPlanRequest, db=Depends(get_db)):
     profile = _athlete_to_profile(athlete)
     training_ctx = get_current_training_context(db, athlete)
 
-    return generate_week_plan(profile, training_ctx)
+    plan = generate_week_plan(profile, training_ctx)
+
+    # Persist the training week and each workout
+    tw = TrainingWeek(
+        athlete_id=athlete.id,
+        week_number=plan.week_number,
+        phase=plan.phase,
+        focus=plan.focus,
+        target_intensity=training_ctx.get("target_intensity", "moderate"),
+    )
+    db.add(tw)
+    db.flush()
+
+    day_map = {"Lunes": 1, "Martes": 2, "Miércoles": 3, "Jueves": 4, "Viernes": 5, "Sábado": 6, "Domingo": 7}
+    for day_plan in plan.days:
+        if not day_plan.rest_day and day_plan.workout:
+            _save_workout(db, athlete.id, day_plan.workout, day_map.get(day_plan.day, 1), tw.id)
+
+    db.commit()
+
+    return plan
+
+
+# --- Workout history ---
+
+
+@app.get("/workouts/{athlete_id}/history", response_model=WorkoutHistoryResponse)
+def get_workout_history(athlete_id: int, limit: int = 20, offset: int = 0, db=Depends(get_db)):
+    athlete = db.get(Athlete, athlete_id)
+    if not athlete:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
+    total = db.query(PlannedWorkout).filter(PlannedWorkout.athlete_id == athlete_id).count()
+    workouts = (
+        db.query(PlannedWorkout)
+        .filter(PlannedWorkout.athlete_id == athlete_id)
+        .order_by(PlannedWorkout.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    return WorkoutHistoryResponse(
+        workouts=[
+            PlannedWorkoutResponse(
+                id=w.id,
+                athlete_id=w.athlete_id,
+                day_of_week=w.day_of_week,
+                workout_type=w.workout_type,
+                warmup=w.warmup,
+                strength=w.strength,
+                wod=w.wod,
+                cooldown=w.cooldown,
+                modalities=w.modalities,
+                scaling_notes=w.scaling_notes,
+                coaches_notes=w.coaches_notes,
+                target_time_domain=w.target_time_domain,
+                created_at=w.created_at,
+                has_log=w.log is not None,
+            )
+            for w in workouts
+        ],
+        total=total,
+    )
+
+
+@app.get("/workouts/detail/{workout_id}", response_model=PlannedWorkoutResponse)
+def get_workout_detail(workout_id: int, db=Depends(get_db)):
+    workout = db.get(PlannedWorkout, workout_id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    return PlannedWorkoutResponse(
+        id=workout.id,
+        athlete_id=workout.athlete_id,
+        day_of_week=workout.day_of_week,
+        workout_type=workout.workout_type,
+        warmup=workout.warmup,
+        strength=workout.strength,
+        wod=workout.wod,
+        cooldown=workout.cooldown,
+        modalities=workout.modalities,
+        scaling_notes=workout.scaling_notes,
+        coaches_notes=workout.coaches_notes,
+        target_time_domain=workout.target_time_domain,
+        created_at=workout.created_at,
+        has_log=workout.log is not None,
+    )
 
 
 # --- Logging ---

@@ -39,7 +39,7 @@ class AthleteResponse(BaseModel):
 class WorkoutRequest(BaseModel):
     """Request a single workout or a full week."""
     athlete_id: int
-    date: date = Field(default_factory=date.today)
+    workout_date: date = Field(default_factory=date.today)
     available_minutes: int | None = None  # Override session duration
     focus: str | None = None  # e.g. "gymnastics pulling" or "heavy deadlift"
     exclude_movements: list[str] = Field(default_factory=list)
@@ -121,6 +121,36 @@ class BenchmarkResponse(BaseModel):
     recorded_at: date
 
     model_config = {"from_attributes": True}
+
+
+# --- Progress ---
+
+
+# --- Planned Workout (persisted) ---
+
+
+class PlannedWorkoutResponse(BaseModel):
+    id: int
+    athlete_id: int
+    day_of_week: int
+    workout_type: WorkoutType
+    warmup: str | None
+    strength: str | None
+    wod: str | None
+    cooldown: str | None
+    modalities: str
+    scaling_notes: str | None
+    coaches_notes: str | None
+    target_time_domain: str | None
+    created_at: datetime
+    has_log: bool = False
+
+    model_config = {"from_attributes": True}
+
+
+class WorkoutHistoryResponse(BaseModel):
+    workouts: list[PlannedWorkoutResponse]
+    total: int
 
 
 # --- Progress ---
