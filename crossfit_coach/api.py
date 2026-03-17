@@ -21,6 +21,7 @@ from crossfit_coach.periodization import (
 from crossfit_coach.schemas import (
     AthleteCreate,
     AthleteResponse,
+    AthleteUpdate,
     BenchmarkCreate,
     BenchmarkResponse,
     PlannedWorkoutResponse,
@@ -104,6 +105,24 @@ def create_athlete(data: AthleteCreate, db=Depends(get_db)):
     )
 
 
+@app.get("/athletes", response_model=list[AthleteResponse])
+def list_athletes(db=Depends(get_db)):
+    athletes = db.query(Athlete).order_by(Athlete.id).all()
+    return [
+        AthleteResponse(
+            id=a.id,
+            name=a.name,
+            level=a.level,
+            training_days_per_week=a.training_days_per_week,
+            session_duration_minutes=a.session_duration_minutes,
+            goals=a.goals,
+            injuries_limitations=a.injuries_limitations,
+            equipment=[eq.name for eq in a.equipment],
+        )
+        for a in athletes
+    ]
+
+
 @app.get("/athletes/{athlete_id}", response_model=AthleteResponse)
 def get_athlete(athlete_id: int, db=Depends(get_db)):
     athlete = db.get(Athlete, athlete_id)
@@ -119,6 +138,55 @@ def get_athlete(athlete_id: int, db=Depends(get_db)):
         injuries_limitations=athlete.injuries_limitations,
         equipment=[eq.name for eq in athlete.equipment],
     )
+
+
+@app.put("/athletes/{athlete_id}", response_model=AthleteResponse)
+def update_athlete(athlete_id: int, data: AthleteUpdate, db=Depends(get_db)):
+    athlete = db.get(Athlete, athlete_id)
+    if not athlete:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
+    if data.name is not None:
+        athlete.name = data.name
+    if data.level is not None:
+        athlete.level = data.level
+    if data.training_days_per_week is not None:
+        athlete.training_days_per_week = data.training_days_per_week
+    if data.session_duration_minutes is not None:
+        athlete.session_duration_minutes = data.session_duration_minutes
+    if data.goals is not None:
+        athlete.goals = data.goals
+    if data.injuries_limitations is not None:
+        athlete.injuries_limitations = data.injuries_limitations
+    if data.equipment is not None:
+        db.query(Equipment).filter(Equipment.athlete_id == athlete.id).delete()
+        for eq_name in data.equipment:
+            db.add(Equipment(athlete_id=athlete.id, name=eq_name))
+
+    db.commit()
+    db.refresh(athlete)
+
+    return AthleteResponse(
+        id=athlete.id,
+        name=athlete.name,
+        level=athlete.level,
+        training_days_per_week=athlete.training_days_per_week,
+        session_duration_minutes=athlete.session_duration_minutes,
+        goals=athlete.goals,
+        injuries_limitations=athlete.injuries_limitations,
+        equipment=[eq.name for eq in athlete.equipment],
+    )
+
+
+@app.delete("/athletes/{athlete_id}")
+def delete_athlete(athlete_id: int, db=Depends(get_db)):
+    athlete = db.get(Athlete, athlete_id)
+    if not athlete:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
+    db.delete(athlete)
+    db.commit()
+    return {"detail": f"Athlete '{athlete.name}' deleted"}
 
 
 # --- Workout generation ---

@@ -9,6 +9,7 @@ from rich.panel import Panel
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
+from crossfit_coach.config import get_active_athlete_id, set_active_athlete_id
 from crossfit_coach.database import get_session
 from crossfit_coach.engine import (
     generate_adaptation_feedback,
@@ -28,7 +29,11 @@ def _get_athlete(db, athlete_id: int | None = None) -> Athlete:
     if athlete_id:
         athlete = db.get(Athlete, athlete_id)
     else:
-        athlete = db.query(Athlete).first()
+        active_id = get_active_athlete_id()
+        if active_id:
+            athlete = db.get(Athlete, active_id)
+        else:
+            athlete = db.query(Athlete).first()
 
     if not athlete:
         console.print("[red]No hay perfil de atleta. Ejecuta: cfc setup[/red]")
@@ -93,13 +98,6 @@ def setup():
     # Save to database
     db = get_session()
 
-    existing = db.query(Athlete).first()
-    if existing:
-        if not Confirm.ask(f"Ya existe el perfil de '{existing.name}'. ¿Reemplazar?"):
-            raise typer.Exit(0)
-        db.delete(existing)
-        db.commit()
-
     athlete = Athlete(
         name=name,
         level=level,
@@ -115,10 +113,14 @@ def setup():
         db.add(Equipment(athlete_id=athlete.id, name=eq))
 
     db.commit()
+    db.refresh(athlete)
 
-    console.print(f"\n[green]Perfil creado para {name}![/green]")
+    set_active_athlete_id(athlete.id)
+
+    console.print(f"\n[green]Perfil creado para {name} (ID: {athlete.id})![/green]")
     console.print(f"Nivel: {level.value} | Días: {days}/semana | Duración: {duration}min")
     console.print(f"Equipamiento: {', '.join(selected_equipment)}")
+    console.print(f"[dim]Atleta activo establecido a: {name}[/dim]")
 
 
 @app.command()
@@ -412,6 +414,57 @@ def profile(
     console.print(f"  Objetivos: {athlete.goals or 'N/A'}")
     console.print(f"  Limitaciones: {athlete.injuries_limitations or 'N/A'}")
     console.print(f"  Equipamiento: {', '.join(eq.name for eq in athlete.equipment)}")
+
+
+@app.command()
+def athletes():
+    """Listar todos los atletas registrados."""
+    db = get_session()
+    all_athletes = db.query(Athlete).order_by(Athlete.id).all()
+
+    if not all_athletes:
+        console.print("[yellow]No hay atletas registrados. Ejecuta: cfc setup[/yellow]")
+        raise typer.Exit(0)
+
+    active_id = get_active_athlete_id()
+
+    table = Table(title="Atletas registrados")
+    table.add_column("ID", style="dim")
+    table.add_column("Nombre", style="bold")
+    table.add_column("Nivel", style="cyan")
+    table.add_column("Días/sem", style="green")
+    table.add_column("Duración", style="green")
+    table.add_column("Activo", style="magenta")
+
+    for a in all_athletes:
+        is_active = "* " if a.id == active_id else ""
+        table.add_row(
+            str(a.id),
+            f"{is_active}{a.name}",
+            a.level.value,
+            str(a.training_days_per_week),
+            f"{a.session_duration_minutes}min",
+            "Sí" if a.id == active_id else "",
+        )
+
+    console.print(table)
+    console.print(f"\n[dim]Usa 'cfc switch <id>' para cambiar de atleta activo.[/dim]")
+
+
+@app.command()
+def switch(
+    athlete_id: int = typer.Argument(..., help="ID del atleta a activar"),
+):
+    """Cambiar el atleta activo."""
+    db = get_session()
+    athlete = db.get(Athlete, athlete_id)
+    if not athlete:
+        console.print(f"[red]Atleta #{athlete_id} no encontrado.[/red]")
+        console.print("[dim]Usa 'cfc athletes' para ver los IDs disponibles.[/dim]")
+        raise typer.Exit(1)
+
+    set_active_athlete_id(athlete.id)
+    console.print(f"[green]Atleta activo: {athlete.name} (ID: {athlete.id})[/green]")
 
 
 @app.command()

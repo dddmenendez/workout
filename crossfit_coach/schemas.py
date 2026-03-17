@@ -20,6 +20,16 @@ class AthleteCreate(BaseModel):
     equipment: list[str] = Field(default_factory=list)
 
 
+class AthleteUpdate(BaseModel):
+    name: str | None = None
+    level: FitnessLevel | None = None
+    training_days_per_week: int | None = Field(default=None, ge=1, le=7)
+    session_duration_minutes: int | None = Field(default=None, ge=20, le=120)
+    goals: str | None = None
+    injuries_limitations: str | None = None
+    equipment: list[str] | None = None
+
+
 class AthleteResponse(BaseModel):
     id: int
     name: str
