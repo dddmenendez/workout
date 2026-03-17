@@ -3,21 +3,24 @@
 ## Estado actual
 
 El backend (FastAPI + SQLite + CLI) está funcional como MVP.
-Los entrenamientos se **generan pero no se guardan** automáticamente en la base de datos.
+La **Fase 1 está completada**: los entrenamientos se guardan automáticamente en BD.
 El soporte multiusuario existe en el esquema de BD pero **no está expuesto** correctamente en CLI ni API.
 
 ---
 
-## Fase 1 — Persistencia de entrenamientos generados
+## Fase 1 — Persistencia de entrenamientos generados ✅ COMPLETADA
 
-> Los WODs generados se pierden si no se loguean manualmente. Hay que guardarlos automáticamente.
+> Los WODs generados se guardaban solo si se logueaban manualmente. Ahora se persisten automáticamente.
 
-- [ ] Guardar automáticamente cada workout generado en la tabla `PlannedWorkout`
-- [ ] Guardar los planes semanales completos en `TrainingWeek` + `PlannedWorkout`
-- [ ] Endpoint `GET /workouts/{athlete_id}/history` — listar entrenamientos pasados (generados y completados)
-- [ ] Endpoint `GET /workouts/{workout_id}` — ver detalle de un entrenamiento guardado
-- [ ] Vincular `WorkoutLog` con `PlannedWorkout` al registrar resultado (ya existe el campo `planned_workout_id`)
-- [ ] Comando CLI `cfc history` — ver historial de entrenamientos
+- [x] Guardar automáticamente cada workout generado en la tabla `PlannedWorkout`
+- [x] Guardar los planes semanales completos en `TrainingWeek` + `PlannedWorkout`
+- [x] Endpoint `GET /workouts/{athlete_id}/history` — listar entrenamientos pasados (paginado)
+- [x] Endpoint `GET /workouts/detail/{workout_id}` — ver detalle de un entrenamiento guardado
+- [x] Vincular `WorkoutLog` con `PlannedWorkout` al registrar resultado (`--workout-id` en CLI, `planned_workout_id` en API)
+- [x] Comando CLI `cfc history` — ver historial de entrenamientos en tabla
+- [x] Comando CLI `cfc show <id>` — ver detalle completo de un workout guardado
+- [x] Modelo `PlannedWorkout` ampliado: `athlete_id`, `coaches_notes`, `target_time_domain`, `created_at`; `week_id` ahora es nullable para workouts sueltos
+- [x] Fix: campo `date` → `workout_date` en `WorkoutRequest` (conflicto con Pydantic v2)
 
 ---
 
