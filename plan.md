@@ -91,42 +91,69 @@ Siguiente: **Fase 6 — Extras opcionales**.
 
 ---
 
-## Fase 6 — Mejoras opcionales
+## Fase 6 — Mejoras opcionales (pendiente)
 
-> Nice-to-have para una experiencia más completa.
+> Nice-to-have para una experiencia más completa. Todas opcionales.
 
-- [ ] Autenticación (JWT o similar) para la API
-- [ ] Exportar entrenamientos a PDF
-- [ ] Notificaciones/recordatorios de entrenamiento
-- [ ] Enlaces a vídeos demostrativos por movimiento
-- [ ] Integración con wearables (Garmin, Apple Watch) para importar métricas
-- [ ] PWA para instalar como app en el móvil
-- [ ] Modo "box/gimnasio": gestión de clases grupales y horarios
-
----
-
-## Prioridad recomendada
-
-```
-Fase 1 (Persistencia)  ████████████ → Sin esto los datos se pierden
-Fase 2 (Multiusuario)  ███████████  → Necesario para varios atletas
-Fase 3 (Progreso)      ██████████   → Da sentido al tracking
-Fase 5 (Tests)         █████████    → Seguridad antes de crecer
-Fase 4 (Frontend)      ████████     → Accesibilidad para no-técnicos
-Fase 6 (Extras)        █████        → Cuando todo lo anterior funcione
-```
+- [ ] **Autenticación (JWT)** — proteger API con tokens, login/registro en frontend
+- [ ] **Exportar a PDF** — descargar WOD del día o plan semanal en PDF
+- [ ] **Notificaciones** — recordatorios de entrenamiento (email o push)
+- [ ] **Vídeos demostrativos** — enlace a vídeo por cada movimiento del WOD
+- [ ] **Integración wearables** — importar FC, calorías desde Garmin/Apple Watch
+- [ ] **PWA** — service worker + manifest para instalar como app en móvil
+- [ ] **Modo Box/Gimnasio** — gestión de clases grupales, horarios, coach asigna WODs
 
 ---
 
-## Stack actual
+## Resumen de fases
+
+| Fase | Estado | Descripción |
+|------|--------|-------------|
+| 1 — Persistencia | ✅ Completada | WODs se guardan automáticamente en BD |
+| 2 — Multiusuario | ✅ Completada | CRUD atletas, switch activo, perfiles independientes |
+| 3 — Progreso | ✅ Completada | Trends, PRs, leaderboard, Rx%, modalidades |
+| 4 — Frontend | ✅ Completada | SPA dark mode, timer, feed social, gráficas |
+| 5 — Testing | ✅ Completada | 38 tests, CI GitHub Actions (lint + pytest) |
+| 6 — Extras | Pendiente | JWT, PDF, PWA, wearables, modo box |
+
+---
+
+## Base de datos
+
+| Aspecto | Detalle |
+|---------|---------|
+| Motor | **SQLite** (sin servidor, sin configuración) |
+| Archivo | `~/.crossfit_coach/coach.db` |
+| ORM | SQLAlchemy 2.0 (modelos declarativos) |
+| Migraciones | Alembic (disponible, auto-create en startup) |
+| Tests | SQLite in-memory con `StaticPool` |
+
+### Tablas principales
+
+| Tabla | Guarda |
+|-------|--------|
+| `athletes` | Perfil: nombre, nivel, días/semana, duración sesión, objetivos, lesiones |
+| `equipment` | Equipamiento por atleta (barra, anillas, remo, kettlebell, etc.) |
+| `planned_workouts` | WODs generados: warmup, fuerza, WOD, cooldown, scaling, notas coach |
+| `workout_logs` | Resultados: score, RPE, Rx, duración (timer), energía, sueño, agujetas |
+| `training_weeks` | Semanas de periodización: fase, foco, intensidad objetivo |
+| `benchmarks` | PRs y benchmarks: Fran, Cindy, 1RM Back Squat, etc. con fecha |
+| `movements` | Librería de movimientos CrossFit (categoría, dificultad, scaling) |
+
+Todo funciona offline en local. No se necesita cuenta en ningún servicio externo.
+
+---
+
+## Stack
 
 | Componente | Tecnología |
 |-----------|-----------|
 | Backend | FastAPI + Uvicorn |
-| BD | SQLite (local, sin servidor) |
+| BD | SQLite → `~/.crossfit_coach/coach.db` |
 | ORM | SQLAlchemy 2.0 |
 | CLI | Typer + Rich |
 | Validación | Pydantic 2.0 |
+| Frontend | HTML/CSS/JS vanilla + Chart.js |
+| Tests | Pytest + Starlette TestClient |
+| CI | GitHub Actions (ruff + pytest, Python 3.11/3.12) |
 | Python | 3.11+ |
-
-No se necesita cuenta en ningún servicio externo. Todo funciona offline en local.
