@@ -5,10 +5,11 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+from telegram import Update
 
 from crossfit_coach.auth import (
     TokenResponse,
@@ -97,6 +98,22 @@ app = FastAPI(
 def health_check():
     """Health check endpoint for Render."""
     return {"status": "ok"}
+
+
+@app.post("/telegram-webhook")
+async def telegram_webhook(request: Request):
+    """Receive Telegram updates via webhook."""
+    import logging
+    _logger = logging.getLogger(__name__)
+    from crossfit_coach.telegram_bot import _tg_app
+    if _tg_app is None:
+        _logger.error("Telegram bot not initialized, dropping update")
+        return {"ok": False, "error": "bot not ready"}
+    data = await request.json()
+    _logger.info("Webhook received update: %s", data.get("update_id", "unknown"))
+    update = Update.de_json(data, _tg_app.bot)
+    await _tg_app.process_update(update)
+    return {"ok": True}
 
 
 @app.get("/debug/webhook")

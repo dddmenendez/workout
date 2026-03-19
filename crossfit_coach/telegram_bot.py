@@ -809,31 +809,13 @@ _tg_app: Application | None = None
 
 
 async def setup_webhook(fastapi_app):
-    """Integrate Telegram bot into FastAPI via webhook.
+    """Initialize Telegram bot and set webhook.
 
-    Call this from the FastAPI lifespan. It:
-    1. Creates a /telegram-webhook endpoint
-    2. Tells Telegram to send updates to RENDER_EXTERNAL_URL/telegram-webhook
-    3. No polling needed — Render stays awake as long as Telegram sends traffic.
+    The POST /telegram-webhook route is registered in api.py (must be
+    registered at module level, not during lifespan, or FastAPI ignores it).
     """
-    from fastapi import Request
-    from fastapi.responses import JSONResponse
-
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     webhook_host = os.environ.get("RENDER_EXTERNAL_URL")  # e.g. https://crossfit-coach-h8c3.onrender.com
-
-    # Always register the route so Telegram doesn't get 405
-    @fastapi_app.post("/telegram-webhook")
-    async def telegram_webhook(request: Request):
-        """Receive Telegram updates via webhook."""
-        if _tg_app is None:
-            logger.error("Telegram bot not initialized, dropping update")
-            return JSONResponse(content={"ok": False, "error": "bot not ready"}, status_code=503)
-        data = await request.json()
-        logger.info("Webhook received update: %s", data.get("update_id", "unknown"))
-        update = Update.de_json(data, _tg_app.bot)
-        await _tg_app.process_update(update)
-        return JSONResponse(content={"ok": True})
 
     if not token:
         logger.warning("TELEGRAM_BOT_TOKEN not set — Telegram bot disabled")
