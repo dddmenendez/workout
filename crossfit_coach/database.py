@@ -35,19 +35,27 @@ _engine = None
 def get_engine():
     global _engine
     if _engine is None:
-        _engine = create_engine(get_database_url(), echo=False)
+        url = get_database_url()
+        logger.info("Database URL: %s", url.split("@")[-1] if "@" in url else url)
+        _engine = create_engine(url, echo=False)
     return _engine
+
+
+def _add_column_if_missing(engine, table_name, column_name, column_def):
+    """Add a column to a table if it doesn't exist."""
+    insp = inspect(engine)
+    if not insp.has_table(table_name):
+        return
+    columns = [c["name"] for c in insp.get_columns(table_name)]
+    if column_name not in columns:
+        logger.info("Adding %s column to %s table", column_name, table_name)
+        with engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}"))
 
 
 def run_migrations(engine):
     """Add missing columns to existing tables."""
-    insp = inspect(engine)
-    if insp.has_table("users"):
-        columns = [c["name"] for c in insp.get_columns("users")]
-        with engine.begin() as conn:
-            if "telegram_chat_id" not in columns:
-                logger.info("Adding telegram_chat_id column to users table")
-                conn.execute(text("ALTER TABLE users ADD COLUMN telegram_chat_id INTEGER UNIQUE"))
+    _add_column_if_missing(engine, "users", "telegram_chat_id", "INTEGER UNIQUE")
 
 
 _db_initialized = False
@@ -59,11 +67,14 @@ def init_db(engine):
     if _db_initialized:
         return
     run_migrations(engine)
-    try:
-        Base.metadata.create_all(engine)
-    except Exception:
-        logger.warning("create_all failed (tables may already exist), continuing")
+    for table in Base.metadata.sorted_tables:
+        try:
+            table.create(engine, checkfirst=True)
+        except Exception as e:
+            logger.warning("Could not create table %s: %s", table.name, e)
     _db_initialized = True
+    logger.info("Database initialized. Tables: %s",
+                [t.name for t in Base.metadata.sorted_tables])
 
 
 def get_session() -> Session:
