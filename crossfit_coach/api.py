@@ -87,6 +87,12 @@ app = FastAPI(
 )
 
 
+@app.get("/health")
+def health_check():
+    """Health check endpoint for Render."""
+    return {"status": "ok"}
+
+
 def _athlete_to_profile(athlete: Athlete) -> dict:
     return {
         "name": athlete.name,
