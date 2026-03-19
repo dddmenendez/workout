@@ -334,6 +334,9 @@ async def workout(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += f"🗒️ *Notas del coach:*\n{w.coaches_notes}"
 
         await update.message.reply_text(msg, parse_mode="Markdown")
+    except Exception as e:
+        logger.error("Error in /workout: %s", e)
+        await update.message.reply_text("❌ Error generando el workout. Intentá de nuevo.")
     finally:
         db.close()
 
@@ -385,6 +388,9 @@ async def week(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(msg[i:i+4000], parse_mode="Markdown")
         else:
             await update.message.reply_text(msg, parse_mode="Markdown")
+    except Exception as e:
+        logger.error("Error in /week: %s", e)
+        await update.message.reply_text("❌ Error generando el plan semanal. Intentá de nuevo.")
     finally:
         db.close()
 
@@ -452,6 +458,9 @@ async def log_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Score: {score} | RPE: {rpe}\n\n"
             f"📊 {feedback}"
         )
+    except Exception as e:
+        logger.error("Error in /log: %s", e)
+        await update.message.reply_text("❌ Error registrando el resultado. Intentá de nuevo.")
     finally:
         db.close()
 
@@ -495,6 +504,9 @@ async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg += f"\n\n🔄 {level_suggestion}"
 
         await update.message.reply_text(msg, parse_mode="Markdown")
+    except Exception as e:
+        logger.error("Error in /progress: %s", e)
+        await update.message.reply_text("❌ Error cargando tu progreso. Intentá de nuevo.")
     finally:
         db.close()
 
@@ -531,6 +543,9 @@ async def benchmark(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.commit()
 
         await update.message.reply_text(f"✅ Benchmark registrado: {name} = {value}")
+    except Exception as e:
+        logger.error("Error in /benchmark: %s", e)
+        await update.message.reply_text("❌ Error registrando el benchmark. Intentá de nuevo.")
     finally:
         db.close()
 
@@ -557,6 +572,9 @@ async def advance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Foco: {week_obj.focus}\n"
             f"Intensidad: {week_obj.target_intensity}"
         )
+    except Exception as e:
+        logger.error("Error in /advance: %s", e)
+        await update.message.reply_text("❌ Error avanzando la semana. Intentá de nuevo.")
     finally:
         db.close()
 
@@ -595,6 +613,9 @@ async def team(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg += f"\n  Último entreno: {last_date}\n\n"
 
         await update.message.reply_text(msg, parse_mode="Markdown")
+    except Exception as e:
+        logger.error("Error in /team: %s", e)
+        await update.message.reply_text("❌ Error cargando el equipo. Intentá de nuevo.")
     finally:
         db.close()
 
@@ -635,6 +656,9 @@ async def teamlog(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(msg[i:i+4000], parse_mode="Markdown")
         else:
             await update.message.reply_text(msg, parse_mode="Markdown")
+    except Exception as e:
+        logger.error("Error in /teamlog: %s", e)
+        await update.message.reply_text("❌ Error cargando los entrenamientos. Intentá de nuevo.")
     finally:
         db.close()
 
@@ -695,6 +719,16 @@ def main():
     app.add_handler(CommandHandler("advance", advance))
     app.add_handler(CommandHandler("team", team))
     app.add_handler(CommandHandler("teamlog", teamlog))
+
+    # Global error handler so exceptions don't silently disappear
+    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+        logger.error("Exception while handling an update:", exc_info=context.error)
+        if isinstance(update, Update) and update.message:
+            await update.message.reply_text(
+                "❌ Ocurrió un error. Intentá de nuevo en unos segundos."
+            )
+
+    app.add_error_handler(error_handler)
 
     logger.info("Bot started! Polling...")
     app.run_polling()
