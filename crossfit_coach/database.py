@@ -3,8 +3,12 @@
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine
+import logging
+
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = Path.home() / ".crossfit_coach" / "coach.db"
 
@@ -35,7 +39,27 @@ def get_engine():
     return _engine
 
 
+def run_migrations(engine):
+    """Add missing columns to existing tables."""
+    insp = inspect(engine)
+    if insp.has_table("users"):
+        columns = [c["name"] for c in insp.get_columns("users")]
+        with engine.begin() as conn:
+            if "telegram_chat_id" not in columns:
+                logger.info("Adding telegram_chat_id column to users table")
+                conn.execute(text("ALTER TABLE users ADD COLUMN telegram_chat_id INTEGER UNIQUE"))
+
+
+def init_db(engine):
+    """Create tables and run migrations safely."""
+    run_migrations(engine)
+    try:
+        Base.metadata.create_all(engine)
+    except Exception:
+        logger.warning("create_all failed (tables may already exist), continuing")
+
+
 def get_session() -> Session:
     engine = get_engine()
-    Base.metadata.create_all(engine)
+    init_db(engine)
     return sessionmaker(bind=engine)()
