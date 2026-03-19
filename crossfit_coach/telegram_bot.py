@@ -1,4 +1,9 @@
-"""Telegram bot for CrossFit Coach - users interact via chat commands."""
+"""Telegram bot for CrossFit Coach - users interact via chat commands.
+
+Supports two modes:
+- Polling (local dev): python -m crossfit_coach.telegram_bot
+- Webhook (production on Render): integrated into FastAPI via setup_webhook()
+"""
 
 import logging
 import os
@@ -741,16 +746,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-def main():
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    if not token:
-        print("ERROR: Set TELEGRAM_BOT_TOKEN environment variable")
-        return
-
-    # Initialize database
-    engine = get_engine()
-    init_db(engine)
-
+def _build_application(token: str) -> Application:
+    """Build the Telegram Application with all handlers registered."""
     app = Application.builder().token(token).build()
 
     # Conversation handlers for multi-step flows
@@ -802,6 +799,81 @@ def main():
 
     app.add_error_handler(error_handler)
 
+    return app
+
+
+# --- Webhook mode for production (Render, Railway, etc.) ---
+
+_tg_app: Application | None = None
+
+
+async def setup_webhook(fastapi_app):
+    """Integrate Telegram bot into FastAPI via webhook.
+
+    Call this from the FastAPI lifespan. It:
+    1. Creates a /telegram-webhook endpoint
+    2. Tells Telegram to send updates to RENDER_EXTERNAL_URL/telegram-webhook
+    3. No polling needed — Render stays awake as long as Telegram sends traffic.
+    """
+    from fastapi import Request
+    from fastapi.responses import JSONResponse
+
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    webhook_host = os.environ.get("RENDER_EXTERNAL_URL")  # e.g. https://crossfit-coach.onrender.com
+
+    if not token:
+        logger.warning("TELEGRAM_BOT_TOKEN not set — Telegram bot disabled")
+        return
+    if not webhook_host:
+        logger.warning("RENDER_EXTERNAL_URL not set — falling back to polling (dev mode)")
+        return
+
+    global _tg_app
+    _tg_app = _build_application(token)
+
+    webhook_path = "/telegram-webhook"
+    webhook_url = f"{webhook_host}{webhook_path}"
+
+    # Register the FastAPI route BEFORE initializing the bot
+    @fastapi_app.post(webhook_path)
+    async def telegram_webhook(request: Request):
+        """Receive Telegram updates via webhook."""
+        data = await request.json()
+        update = Update.de_json(data, _tg_app.bot)
+        await _tg_app.process_update(update)
+        return JSONResponse(content={"ok": True})
+
+    # Initialize the application (without starting polling)
+    await _tg_app.initialize()
+
+    # Tell Telegram where to send updates
+    await _tg_app.bot.set_webhook(
+        url=webhook_url,
+        allowed_updates=Update.ALL_TYPES,
+    )
+    logger.info("Telegram webhook set to %s", webhook_url)
+
+
+async def shutdown_webhook():
+    """Clean up on shutdown."""
+    if _tg_app:
+        await _tg_app.bot.delete_webhook()
+        await _tg_app.shutdown()
+        logger.info("Telegram webhook removed")
+
+
+def main():
+    """Run bot in polling mode (for local development)."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        print("ERROR: Set TELEGRAM_BOT_TOKEN environment variable")
+        return
+
+    # Initialize database
+    engine = get_engine()
+    init_db(engine)
+
+    app = _build_application(token)
     logger.info("Bot started! Polling...")
     app.run_polling()
 

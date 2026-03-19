@@ -69,7 +69,14 @@ from crossfit_coach.schemas import (
 async def lifespan(app: FastAPI):
     engine = get_engine()
     init_db(engine)
+
+    # Start Telegram bot in webhook mode (only if RENDER_EXTERNAL_URL is set)
+    from crossfit_coach.telegram_bot import setup_webhook, shutdown_webhook
+    await setup_webhook(app)
+
     yield
+
+    await shutdown_webhook()
 
 
 app = FastAPI(
