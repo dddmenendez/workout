@@ -746,11 +746,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-def _build_application(token: str) -> Application:
-    """Build the Telegram Application with all handlers registered."""
-    app = Application.builder().token(token).build()
-
-    # Conversation handlers for multi-step flows
+def _register_handlers(app: Application):
+    """Register all command/conversation handlers on the given Application."""
     register_handler = ConversationHandler(
         entry_points=[CommandHandler("register", register_start)],
         states={0: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_password)]},
@@ -789,7 +786,6 @@ def _build_application(token: str) -> Application:
     app.add_handler(CommandHandler("team", team))
     app.add_handler(CommandHandler("teamlog", teamlog))
 
-    # Global error handler so exceptions don't silently disappear
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
         logger.error("Exception while handling an update:", exc_info=context.error)
         if isinstance(update, Update) and update.message:
@@ -799,6 +795,11 @@ def _build_application(token: str) -> Application:
 
     app.add_error_handler(error_handler)
 
+
+def _build_application(token: str) -> Application:
+    """Build the Telegram Application with all handlers registered (polling mode)."""
+    app = Application.builder().token(token).build()
+    _register_handlers(app)
     return app
 
 
@@ -829,16 +830,24 @@ async def setup_webhook(fastapi_app):
         return
 
     global _tg_app
-    _tg_app = _build_application(token)
+    # Build without Updater — we handle updates manually via webhook
+    tg_builder = Application.builder().token(token).updater(None)
+    _tg_app = tg_builder.build()
+
+    # Register all handlers on the webhook application
+    _register_handlers(_tg_app)
 
     webhook_path = "/telegram-webhook"
     webhook_url = f"{webhook_host}{webhook_path}"
+
+    logger.info("Setting up webhook: %s", webhook_url)
 
     # Register the FastAPI route BEFORE initializing the bot
     @fastapi_app.post(webhook_path)
     async def telegram_webhook(request: Request):
         """Receive Telegram updates via webhook."""
         data = await request.json()
+        logger.info("Webhook received update: %s", data.get("update_id", "unknown"))
         update = Update.de_json(data, _tg_app.bot)
         await _tg_app.process_update(update)
         return JSONResponse(content={"ok": True})

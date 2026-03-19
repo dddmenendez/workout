@@ -67,12 +67,18 @@ from crossfit_coach.schemas import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import logging
+    _logger = logging.getLogger(__name__)
+    _logger.info("=== CrossFit Coach starting up ===")
+
     engine = get_engine()
     init_db(engine)
+    _logger.info("Database initialized OK")
 
     # Start Telegram bot in webhook mode (only if RENDER_EXTERNAL_URL is set)
     from crossfit_coach.telegram_bot import setup_webhook, shutdown_webhook
     await setup_webhook(app)
+    _logger.info("Telegram webhook setup complete")
 
     yield
 
@@ -91,6 +97,25 @@ app = FastAPI(
 def health_check():
     """Health check endpoint for Render."""
     return {"status": "ok"}
+
+
+@app.get("/debug/webhook")
+async def debug_webhook():
+    """Check Telegram webhook status — remove after debugging."""
+    import os
+    from crossfit_coach.telegram_bot import _tg_app
+    info = {"bot_initialized": _tg_app is not None}
+    info["render_url"] = os.environ.get("RENDER_EXTERNAL_URL", "NOT SET")
+    if _tg_app:
+        try:
+            wh = await _tg_app.bot.get_webhook_info()
+            info["webhook_url"] = wh.url
+            info["pending_updates"] = wh.pending_update_count
+            info["last_error"] = wh.last_error_message
+            info["last_error_date"] = str(wh.last_error_date) if wh.last_error_date else None
+        except Exception as e:
+            info["error"] = str(e)
+    return info
 
 
 def _athlete_to_profile(athlete: Athlete) -> dict:
