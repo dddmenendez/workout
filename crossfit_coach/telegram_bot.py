@@ -843,9 +843,10 @@ async def setup_webhook(fastapi_app):
         await _tg_app.process_update(update)
         return JSONResponse(content={"ok": True})
 
-    # Initialize the application (without starting polling)
+    # Initialize and start the application (without polling)
     try:
         await _tg_app.initialize()
+        await _tg_app.start()
     except Exception:
         logger.exception("Failed to initialize Telegram application")
         _tg_app = None
@@ -867,6 +868,7 @@ async def shutdown_webhook():
     """Clean up on shutdown."""
     if _tg_app:
         await _tg_app.bot.delete_webhook()
+        await _tg_app.stop()
         await _tg_app.shutdown()
         logger.info("Telegram webhook removed")
 
