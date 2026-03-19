@@ -95,6 +95,27 @@ class Athlete(Base):
     benchmarks: Mapped[list["Benchmark"]] = relationship(back_populates="athlete", cascade="all, delete-orphan")
     workout_logs: Mapped[list["WorkoutLog"]] = relationship(back_populates="athlete", cascade="all, delete-orphan")
     training_plan: Mapped[list["TrainingWeek"]] = relationship(back_populates="athlete", cascade="all, delete-orphan")
+    planned_workouts: Mapped[list["PlannedWorkout"]] = relationship(back_populates="athlete", cascade="all, delete-orphan")
+
+    following: Mapped[list["Follow"]] = relationship(
+        foreign_keys="Follow.follower_id", back_populates="follower", cascade="all, delete-orphan"
+    )
+    followers: Mapped[list["Follow"]] = relationship(
+        foreign_keys="Follow.followed_id", back_populates="followed", cascade="all, delete-orphan"
+    )
+
+
+class Follow(Base):
+    """Athlete A follows Athlete B."""
+    __tablename__ = "follows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    follower_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"))
+    followed_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    follower: Mapped["Athlete"] = relationship(foreign_keys=[follower_id], back_populates="following")
+    followed: Mapped["Athlete"] = relationship(foreign_keys=[followed_id], back_populates="followers")
 
 
 class Equipment(Base):
@@ -156,7 +177,8 @@ class PlannedWorkout(Base):
     __tablename__ = "planned_workouts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    week_id: Mapped[int] = mapped_column(ForeignKey("training_weeks.id"))
+    athlete_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"))
+    week_id: Mapped[int | None] = mapped_column(ForeignKey("training_weeks.id"), nullable=True)
     day_of_week: Mapped[int] = mapped_column(Integer)  # 1=Monday, 7=Sunday
     workout_type: Mapped[WorkoutType] = mapped_column(Enum(WorkoutType))
     description: Mapped[str] = mapped_column(Text)  # Full workout description
@@ -167,8 +189,12 @@ class PlannedWorkout(Base):
     target_duration_minutes: Mapped[int] = mapped_column(Integer, default=60)
     modalities: Mapped[str] = mapped_column(Text)  # comma-separated: "gymnastics,weightlifting"
     scaling_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    coaches_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_time_domain: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    week: Mapped["TrainingWeek"] = relationship(back_populates="workouts")
+    athlete: Mapped["Athlete"] = relationship(back_populates="planned_workouts")
+    week: Mapped["TrainingWeek | None"] = relationship(back_populates="workouts")
     log: Mapped["WorkoutLog | None"] = relationship(back_populates="planned_workout", uselist=False)
 
 
@@ -187,6 +213,7 @@ class WorkoutLog(Base):
     energy_level: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1-5 pre-workout
     sleep_quality: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1-5
     muscle_soreness: Mapped[str | None] = mapped_column(Text, nullable=True)  # body areas
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)  # timer duration
 
     athlete: Mapped["Athlete"] = relationship(back_populates="workout_logs")
     planned_workout: Mapped["PlannedWorkout | None"] = relationship(back_populates="log")

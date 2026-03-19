@@ -20,6 +20,16 @@ class AthleteCreate(BaseModel):
     equipment: list[str] = Field(default_factory=list)
 
 
+class AthleteUpdate(BaseModel):
+    name: str | None = None
+    level: FitnessLevel | None = None
+    training_days_per_week: int | None = Field(default=None, ge=1, le=7)
+    session_duration_minutes: int | None = Field(default=None, ge=20, le=120)
+    goals: str | None = None
+    injuries_limitations: str | None = None
+    equipment: list[str] | None = None
+
+
 class AthleteResponse(BaseModel):
     id: int
     name: str
@@ -85,6 +95,7 @@ class WorkoutLogCreate(BaseModel):
     energy_level: int | None = Field(default=None, ge=1, le=5)
     sleep_quality: int | None = Field(default=None, ge=1, le=5)
     muscle_soreness: str | None = None
+    duration_seconds: int | None = None
 
 
 class WorkoutLogResponse(BaseModel):
@@ -94,9 +105,58 @@ class WorkoutLogResponse(BaseModel):
     rpe: int | None
     went_rx: bool
     notes: str | None
-    adaptation_feedback: str  # AI-generated insight on how this affects future programming
+    duration_seconds: int | None = None
+    adaptation_feedback: str
 
     model_config = {"from_attributes": True}
+
+
+# --- Feed Social ---
+
+
+class FeedEntry(BaseModel):
+    athlete_id: int
+    athlete_name: str
+    workout_type: str | None = None
+    wod_summary: str | None = None
+    score: str | None = None
+    rpe: int | None = None
+    went_rx: bool = False
+    duration_seconds: int | None = None
+    completed_at: datetime
+    notes: str | None = None
+    workout_id: int | None = None
+    warmup: str | None = None
+    strength: str | None = None
+    wod_full: str | None = None
+    cooldown: str | None = None
+    scaling: str | None = None
+    coaches_notes: str | None = None
+
+
+class FeedResponse(BaseModel):
+    entries: list[FeedEntry]
+    total: int
+
+
+# --- Follow ---
+
+
+class FollowRequest(BaseModel):
+    follower_id: int
+    followed_id: int
+
+
+class FollowResponse(BaseModel):
+    id: int
+    follower_id: int
+    followed_id: int
+    followed_name: str
+
+
+class FollowListResponse(BaseModel):
+    following: list[FollowResponse]
+    followers: list[FollowResponse]
 
 
 # --- Benchmark ---
@@ -113,6 +173,33 @@ class BenchmarkResponse(BaseModel):
     recorded_at: date
 
     model_config = {"from_attributes": True}
+
+
+# --- Planned Workout (persisted) ---
+
+
+class PlannedWorkoutResponse(BaseModel):
+    id: int
+    athlete_id: int
+    day_of_week: int
+    workout_type: WorkoutType
+    warmup: str | None
+    strength: str | None
+    wod: str | None
+    cooldown: str | None
+    modalities: str
+    scaling_notes: str | None
+    coaches_notes: str | None
+    target_time_domain: str | None
+    created_at: datetime
+    has_log: bool = False
+
+    model_config = {"from_attributes": True}
+
+
+class WorkoutHistoryResponse(BaseModel):
+    workouts: list[PlannedWorkoutResponse]
+    total: int
 
 
 # --- Progress ---
@@ -150,3 +237,66 @@ class TeamLogEntry(BaseModel):
     rpe: int | None
     went_rx: bool
     notes: str | None
+
+
+# --- Trends ---
+
+
+class WeeklyStats(BaseModel):
+    week_start: date
+    total_workouts: int
+    avg_rpe: float | None
+    rx_percentage: float
+    modality_distribution: dict[str, int]
+
+
+class TrendsResponse(BaseModel):
+    athlete_id: int
+    weeks: list[WeeklyStats]
+
+
+# --- Benchmark history ---
+
+
+class BenchmarkEntry(BaseModel):
+    value: str
+    recorded_at: date
+
+
+class BenchmarkHistory(BaseModel):
+    name: str
+    entries: list[BenchmarkEntry]
+
+
+class BenchmarkHistoryResponse(BaseModel):
+    athlete_id: int
+    benchmarks: list[BenchmarkHistory]
+
+
+# --- Leaderboard ---
+
+
+class LeaderboardEntry(BaseModel):
+    athlete_id: int
+    athlete_name: str
+    value: str
+    recorded_at: date
+
+
+class LeaderboardResponse(BaseModel):
+    benchmark_name: str
+    entries: list[LeaderboardEntry]
+
+
+# --- Personal Records ---
+
+
+class PersonalRecord(BaseModel):
+    name: str
+    value: str
+    recorded_at: date
+
+
+class PersonalRecordsResponse(BaseModel):
+    athlete_id: int
+    records: list[PersonalRecord]
