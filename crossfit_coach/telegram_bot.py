@@ -14,7 +14,7 @@ from telegram.ext import (
 )
 
 from crossfit_coach.auth import hash_password, verify_password, create_token
-from crossfit_coach.database import Base, get_engine, get_session
+from crossfit_coach.database import get_engine, get_session, init_db
 from crossfit_coach.engine import (
     generate_adaptation_feedback,
     generate_progress_assessment,
@@ -648,7 +648,7 @@ def main():
 
     # Initialize database
     engine = get_engine()
-    Base.metadata.create_all(engine)
+    init_db(engine)
 
     app = Application.builder().token(token).build()
 

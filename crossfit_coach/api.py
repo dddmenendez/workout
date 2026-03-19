@@ -19,7 +19,7 @@ from crossfit_coach.auth import (
     login_user,
     register_user,
 )
-from crossfit_coach.database import Base, get_engine
+from crossfit_coach.database import get_engine, init_db
 from crossfit_coach.engine import (
     generate_adaptation_feedback,
     generate_progress_assessment,
@@ -68,7 +68,7 @@ from crossfit_coach.schemas import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     engine = get_engine()
-    Base.metadata.create_all(engine)
+    init_db(engine)
     yield
 
 
