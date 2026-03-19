@@ -244,15 +244,19 @@ def _get_weight_for_movement(
     level: FitnessLevel,
     equipment_details: dict,
     intensity: str,
-) -> str | None:
-    """Get a weight prescription for a movement based on equipment and level."""
+) -> tuple[str | None, float]:
+    """Get weight prescription and volume multiplier for a movement.
+
+    Returns (weight_str, volume_multiplier). When user doesn't have enough
+    weight, volume_multiplier > 1.0 to compensate with more reps.
+    """
     if mov["category"] != MovementCategory.WEIGHTLIFTING:
-        return None
+        return None, 1.0
 
     name = mov["name"]
     base_weight = _RX_WEIGHTS.get(name, {}).get(level)
     if base_weight is None:
-        return None
+        return None, 1.0
 
     # Check if user has weight limits from equipment_details
     max_available = None
@@ -261,7 +265,6 @@ def _get_weight_for_movement(
         eq = eq.strip()
         if eq in equipment_details:
             detail = equipment_details[eq]
-            # Try to extract max weight from details like "barra 20kg + discos hasta 100kg"
             import re
             numbers = re.findall(r'(\d+)\s*kg', detail)
             if numbers:
@@ -269,10 +272,16 @@ def _get_weight_for_movement(
 
     # Apply intensity factor for WOD context
     factor = _WOD_INTENSITY_FACTOR.get(intensity, 0.65)
-    suggested = int(base_weight * factor)
+    ideal_weight = base_weight * factor
 
-    # Cap at available weight
+    # Calculate volume multiplier if weight is capped
+    vol_multiplier = 1.0
+    suggested = ideal_weight
     if max_available is not None and suggested > max_available:
+        # Compensate: if ideal is 100kg but max is 50kg, need ~2x reps
+        # Using a conservative formula: ratio capped at 3x to keep it reasonable
+        if max_available > 0:
+            vol_multiplier = min(3.0, ideal_weight / max_available)
         suggested = max_available
 
     # Round to nearest 2.5
@@ -282,8 +291,8 @@ def _get_weight_for_movement(
 
     # Format nicely
     if suggested == int(suggested):
-        return f"{int(suggested)}kg"
-    return f"{suggested}kg"
+        return f"{int(suggested)}kg", vol_multiplier
+    return f"{suggested}kg", vol_multiplier
 
 
 def _inject_weights(
@@ -293,14 +302,30 @@ def _inject_weights(
     equipment_details: dict,
     intensity: str,
 ) -> str:
-    """Inject weight prescriptions into WOD/strength text for weightlifting movements."""
+    """Inject weight prescriptions and adjust reps when weight is limited."""
+    import re
+
     for mov in movements:
-        weight = _get_weight_for_movement(mov, level, equipment_details, intensity)
+        weight, vol_mult = _get_weight_for_movement(mov, level, equipment_details, intensity)
         if weight and mov["name"] in text:
-            # Append weight after movement name (e.g., "- 15 Thruster" -> "- 15 Thruster (52kg)")
-            # Only if weight isn't already mentioned
             if "kg" not in text.split(mov["name"])[0].split("\n")[-1]:
-                text = text.replace(mov["name"], f"{mov['name']} ({weight})")
+                if vol_mult > 1.1:
+                    # Adjust reps upward to compensate for lower weight
+                    # Find pattern like "- 15 Movement" or "- 5 Movement"
+                    pattern = r'(\d+)\s+' + re.escape(mov["name"])
+                    match = re.search(pattern, text)
+                    if match:
+                        original_reps = int(match.group(1))
+                        adjusted_reps = max(original_reps, int(original_reps * vol_mult))
+                        text = text.replace(
+                            f"{match.group(1)} {mov['name']}",
+                            f"{adjusted_reps} {mov['name']} ({weight})",
+                            1,
+                        )
+                    else:
+                        text = text.replace(mov["name"], f"{mov['name']} ({weight})")
+                else:
+                    text = text.replace(mov["name"], f"{mov['name']} ({weight})")
     return text
 
 
