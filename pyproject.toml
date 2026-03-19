@@ -11,6 +11,10 @@ dependencies = [
     "typer>=0.14.0",
     "rich>=13.0.0",
     "alembic>=1.14.0",
+    "bcrypt>=4.0.0",
+    "python-jose>=3.3.0",
+    "python-telegram-bot>=21.0",
+    "psycopg2-binary>=2.9.0",
 ]
 
 [project.optional-dependencies]
@@ -22,7 +26,8 @@ dev = [
 
 [project.scripts]
 cfc = "crossfit_coach.cli:app"
+cfc-bot = "crossfit_coach.telegram_bot:main"
 
 [build-system]
-requires = ["setuptools>=75.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"

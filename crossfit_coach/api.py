@@ -4,15 +4,25 @@ from contextlib import asynccontextmanager
 from datetime import date
 
 from fastapi import Depends, FastAPI, HTTPException
+from sqlalchemy.orm import Session
 
-from crossfit_coach.database import Base, get_engine, get_session
+from crossfit_coach.auth import (
+    TokenResponse,
+    UserLogin,
+    UserRegister,
+    get_current_user,
+    get_db,
+    login_user,
+    register_user,
+)
+from crossfit_coach.database import Base, get_engine
 from crossfit_coach.engine import (
     generate_adaptation_feedback,
     generate_progress_assessment,
     generate_week_plan,
     generate_workout,
 )
-from crossfit_coach.models import Athlete, Benchmark, Equipment, WorkoutLog
+from crossfit_coach.models import Athlete, Benchmark, Equipment, User, WorkoutLog
 from crossfit_coach.periodization import (
     advance_week,
     get_current_training_context,
@@ -24,7 +34,6 @@ from crossfit_coach.schemas import (
     BenchmarkCreate,
     BenchmarkResponse,
     ProgressSummary,
-    WeekPlanRequest,
     WeekPlanResponse,
     WorkoutLogCreate,
     WorkoutLogResponse,
@@ -42,18 +51,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="CrossFit Coach",
-    description="CrossFit training app based on L1/L2 methodology",
-    version="0.2.0",
+    description="CrossFit training app based on L1/L2 methodology. Regístrate y entrena!",
+    version="0.3.0",
     lifespan=lifespan,
 )
-
-
-def get_db():
-    db = get_session()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def _athlete_to_profile(athlete: Athlete) -> dict:
@@ -68,12 +69,40 @@ def _athlete_to_profile(athlete: Athlete) -> dict:
     }
 
 
+def _get_user_athlete(db: Session, user: User) -> Athlete:
+    """Get the athlete profile for the current user."""
+    athlete = db.query(Athlete).filter(Athlete.user_id == user.id).first()
+    if not athlete:
+        raise HTTPException(status_code=404, detail="No tenés perfil de atleta. Creá uno primero con POST /athletes")
+    return athlete
+
+
+# --- Auth endpoints ---
+
+
+@app.post("/auth/register", response_model=TokenResponse, tags=["auth"])
+def register(data: UserRegister, db: Session = Depends(get_db)):
+    """Registrar nuevo usuario."""
+    return register_user(data, db)
+
+
+@app.post("/auth/login", response_model=TokenResponse, tags=["auth"])
+def login(data: UserLogin, db: Session = Depends(get_db)):
+    """Iniciar sesión."""
+    return login_user(data, db)
+
+
 # --- Athlete endpoints ---
 
 
-@app.post("/athletes", response_model=AthleteResponse)
-def create_athlete(data: AthleteCreate, db=Depends(get_db)):
+@app.post("/athletes", response_model=AthleteResponse, tags=["athlete"])
+def create_athlete(data: AthleteCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    existing = db.query(Athlete).filter(Athlete.user_id == user.id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Ya tenés un perfil de atleta")
+
     athlete = Athlete(
+        user_id=user.id,
         name=data.name,
         level=data.level,
         training_days_per_week=data.training_days_per_week,
@@ -102,11 +131,9 @@ def create_athlete(data: AthleteCreate, db=Depends(get_db)):
     )
 
 
-@app.get("/athletes/{athlete_id}", response_model=AthleteResponse)
-def get_athlete(athlete_id: int, db=Depends(get_db)):
-    athlete = db.get(Athlete, athlete_id)
-    if not athlete:
-        raise HTTPException(status_code=404, detail="Athlete not found")
+@app.get("/athletes/me", response_model=AthleteResponse, tags=["athlete"])
+def get_my_athlete(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    athlete = _get_user_athlete(db, user)
     return AthleteResponse(
         id=athlete.id,
         name=athlete.name,
@@ -122,12 +149,13 @@ def get_athlete(athlete_id: int, db=Depends(get_db)):
 # --- Workout generation ---
 
 
-@app.post("/workouts/generate", response_model=WorkoutResponse)
-def generate_single_workout(req: WorkoutRequest, db=Depends(get_db)):
-    athlete = db.get(Athlete, req.athlete_id)
-    if not athlete:
-        raise HTTPException(status_code=404, detail="Athlete not found")
-
+@app.post("/workouts/generate", response_model=WorkoutResponse, tags=["workouts"])
+def generate_single_workout(
+    req: WorkoutRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    athlete = _get_user_athlete(db, user)
     profile = _athlete_to_profile(athlete)
 
     if req.available_minutes:
@@ -141,34 +169,35 @@ def generate_single_workout(req: WorkoutRequest, db=Depends(get_db)):
         training_ctx["exclude_movements"] = req.exclude_movements
 
     days = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-    training_ctx["day_of_week"] = days[req.date.weekday()]
+    training_ctx["day_of_week"] = days[req.workout_date.weekday()]
 
     return generate_workout(profile, training_ctx)
 
 
-@app.post("/workouts/week", response_model=WeekPlanResponse)
-def generate_weekly_plan(req: WeekPlanRequest, db=Depends(get_db)):
-    athlete = db.get(Athlete, req.athlete_id)
-    if not athlete:
-        raise HTTPException(status_code=404, detail="Athlete not found")
-
+@app.post("/workouts/week", response_model=WeekPlanResponse, tags=["workouts"])
+def generate_weekly_plan(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    athlete = _get_user_athlete(db, user)
     profile = _athlete_to_profile(athlete)
     training_ctx = get_current_training_context(db, athlete)
-
     return generate_week_plan(profile, training_ctx)
 
 
 # --- Logging ---
 
 
-@app.post("/logs", response_model=WorkoutLogResponse)
-def log_workout(data: WorkoutLogCreate, db=Depends(get_db)):
-    athlete = db.get(Athlete, data.athlete_id)
-    if not athlete:
-        raise HTTPException(status_code=404, detail="Athlete not found")
+@app.post("/logs", response_model=WorkoutLogResponse, tags=["logs"])
+def log_workout(
+    data: WorkoutLogCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    athlete = _get_user_athlete(db, user)
 
     log = WorkoutLog(
-        athlete_id=data.athlete_id,
+        athlete_id=athlete.id,
         planned_workout_id=data.planned_workout_id,
         score=data.score,
         rpe=data.rpe,
@@ -210,35 +239,33 @@ def log_workout(data: WorkoutLogCreate, db=Depends(get_db)):
 # --- Benchmarks ---
 
 
-@app.post("/benchmarks", response_model=BenchmarkResponse)
-def add_benchmark(data: BenchmarkCreate, db=Depends(get_db)):
-    athlete = db.get(Athlete, data.athlete_id)
-    if not athlete:
-        raise HTTPException(status_code=404, detail="Athlete not found")
-
-    bm = Benchmark(athlete_id=data.athlete_id, name=data.name, value=data.value)
+@app.post("/benchmarks", response_model=BenchmarkResponse, tags=["benchmarks"])
+def add_benchmark(
+    data: BenchmarkCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    athlete = _get_user_athlete(db, user)
+    bm = Benchmark(athlete_id=athlete.id, name=data.name, value=data.value)
     db.add(bm)
     db.commit()
     db.refresh(bm)
-
     return BenchmarkResponse(name=bm.name, value=bm.value, recorded_at=bm.recorded_at)
 
 
-@app.get("/benchmarks/{athlete_id}", response_model=list[BenchmarkResponse])
-def get_benchmarks(athlete_id: int, db=Depends(get_db)):
-    benchmarks = db.query(Benchmark).filter(Benchmark.athlete_id == athlete_id).all()
+@app.get("/benchmarks", response_model=list[BenchmarkResponse], tags=["benchmarks"])
+def get_benchmarks(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    athlete = _get_user_athlete(db, user)
+    benchmarks = db.query(Benchmark).filter(Benchmark.athlete_id == athlete.id).all()
     return [BenchmarkResponse(name=b.name, value=b.value, recorded_at=b.recorded_at) for b in benchmarks]
 
 
 # --- Progress ---
 
 
-@app.get("/progress/{athlete_id}", response_model=ProgressSummary)
-def get_progress(athlete_id: int, db=Depends(get_db)):
-    athlete = db.get(Athlete, athlete_id)
-    if not athlete:
-        raise HTTPException(status_code=404, detail="Athlete not found")
-
+@app.get("/progress", response_model=ProgressSummary, tags=["progress"])
+def get_progress(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    athlete = _get_user_athlete(db, user)
     ctx = get_current_training_context(db, athlete)
     profile = _athlete_to_profile(athlete)
 
@@ -250,7 +277,7 @@ def get_progress(athlete_id: int, db=Depends(get_db)):
 
     recent_benchmarks = (
         db.query(Benchmark)
-        .filter(Benchmark.athlete_id == athlete_id)
+        .filter(Benchmark.athlete_id == athlete.id)
         .order_by(Benchmark.recorded_at.desc())
         .limit(5)
         .all()
@@ -274,12 +301,9 @@ def get_progress(athlete_id: int, db=Depends(get_db)):
 # --- Advance week ---
 
 
-@app.post("/training/advance-week")
-def advance_training_week(athlete_id: int, db=Depends(get_db)):
-    athlete = db.get(Athlete, athlete_id)
-    if not athlete:
-        raise HTTPException(status_code=404, detail="Athlete not found")
-
+@app.post("/training/advance-week", tags=["training"])
+def advance_training_week(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    athlete = _get_user_athlete(db, user)
     week = advance_week(db, athlete)
     return {
         "week_number": week.week_number,
