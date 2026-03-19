@@ -37,9 +37,8 @@ class AthleteResponse(BaseModel):
 
 
 class WorkoutRequest(BaseModel):
-    """Request a single workout or a full week."""
-    athlete_id: int
-    date: date = Field(default_factory=date.today)
+    """Request a single workout."""
+    workout_date: date = Field(default_factory=date.today)
     available_minutes: int | None = None  # Override session duration
     focus: str | None = None  # e.g. "gymnastics pulling" or "heavy deadlift"
     exclude_movements: list[str] = Field(default_factory=list)
@@ -60,11 +59,6 @@ class WorkoutResponse(BaseModel):
 # --- Week Plan ---
 
 
-class WeekPlanRequest(BaseModel):
-    athlete_id: int
-    week_start: date = Field(default_factory=date.today)
-
-
 class DayPlan(BaseModel):
     day: str  # "Monday", "Tuesday", etc.
     rest_day: bool = False
@@ -83,7 +77,6 @@ class WeekPlanResponse(BaseModel):
 
 
 class WorkoutLogCreate(BaseModel):
-    athlete_id: int
     planned_workout_id: int | None = None
     score: str | None = None  # "5 rounds + 3 reps", "12:35", "100kg"
     rpe: int = Field(ge=1, le=10)
@@ -110,7 +103,6 @@ class WorkoutLogResponse(BaseModel):
 
 
 class BenchmarkCreate(BaseModel):
-    athlete_id: int
     name: str
     value: str
 
@@ -135,3 +127,26 @@ class ProgressSummary(BaseModel):
     modality_distribution: dict[str, int]
     recent_benchmarks: list[BenchmarkResponse]
     assessment: str  # Progress summary and recommendations
+
+
+# --- Coach / Team ---
+
+
+class TeamMemberSummary(BaseModel):
+    username: str
+    athlete_name: str
+    level: FitnessLevel
+    total_workouts: int
+    avg_rpe_last_week: float | None
+    current_phase: TrainingPhase
+    current_week: int
+    last_workout_date: datetime | None
+
+
+class TeamLogEntry(BaseModel):
+    athlete_name: str
+    completed_at: datetime
+    score: str | None
+    rpe: int | None
+    went_rx: bool
+    notes: str | None

@@ -1,5 +1,6 @@
 """Database configuration and session management."""
 
+import os
 from pathlib import Path
 
 from sqlalchemy import create_engine
@@ -12,12 +13,29 @@ class Base(DeclarativeBase):
     pass
 
 
-def get_engine(db_path: Path = DB_PATH):
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    return create_engine(f"sqlite:///{db_path}", echo=False)
+def get_database_url() -> str:
+    """Return DATABASE_URL from env (PostgreSQL for production) or SQLite fallback."""
+    url = os.environ.get("DATABASE_URL")
+    if url:
+        # Render uses postgres:// but SQLAlchemy needs postgresql://
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://", 1)
+        return url
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    return f"sqlite:///{DB_PATH}"
 
 
-def get_session(db_path: Path = DB_PATH) -> Session:
-    engine = get_engine(db_path)
+_engine = None
+
+
+def get_engine():
+    global _engine
+    if _engine is None:
+        _engine = create_engine(get_database_url(), echo=False)
+    return _engine
+
+
+def get_session() -> Session:
+    engine = get_engine()
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)()
