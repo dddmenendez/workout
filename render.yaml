@@ -12,6 +12,11 @@ services:
         generateValue: true
       - key: TELEGRAM_BOT_TOKEN
         sync: false  # Set manually in Render dashboard
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          type: web
+          name: crossfit-coach
+          property: host
 
 databases:
   - name: crossfit-db
