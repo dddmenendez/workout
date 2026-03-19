@@ -3,6 +3,8 @@
 import logging
 import os
 
+logger = logging.getLogger(__name__)
+
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -132,6 +134,10 @@ async def register_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ Cuenta creada: {username}\n\n"
             "Ahora configurá tu perfil de atleta con /setup"
         )
+    except Exception as e:
+        db.rollback()
+        logger.error("Error registering user %s: %s", username, e)
+        await update.message.reply_text("❌ Error al crear la cuenta. Intentá de nuevo con /register")
     finally:
         db.close()
 
