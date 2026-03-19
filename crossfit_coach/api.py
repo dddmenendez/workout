@@ -315,19 +315,12 @@ def advance_training_week(user: User = Depends(get_current_user), db: Session = 
     }
 
 
-# --- Coach endpoints ---
+# --- Community endpoints (everyone sees everyone) ---
 
 
-def _require_coach(user: User):
-    if not user.is_coach:
-        raise HTTPException(status_code=403, detail="Solo el coach puede ver esto")
-
-
-@app.get("/coach/team", response_model=list[TeamMemberSummary], tags=["coach"])
+@app.get("/community/team", response_model=list[TeamMemberSummary], tags=["community"])
 def get_team(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Ver todos los atletas registrados (solo coach)."""
-    _require_coach(user)
-
+    """Ver todos los atletas del grupo."""
     athletes = db.query(Athlete).join(User, Athlete.user_id == User.id).all()
     result = []
     for athlete in athletes:
@@ -351,11 +344,9 @@ def get_team(user: User = Depends(get_current_user), db: Session = Depends(get_d
     return result
 
 
-@app.get("/coach/team/{username}/progress", response_model=ProgressSummary, tags=["coach"])
-def get_team_member_progress(username: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Ver el progreso de un atleta específico (solo coach)."""
-    _require_coach(user)
-
+@app.get("/community/{username}/progress", response_model=ProgressSummary, tags=["community"])
+def get_member_progress(username: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Ver el progreso de un compañero."""
     target_user = db.query(User).filter(User.username == username).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
@@ -394,11 +385,9 @@ def get_team_member_progress(username: str, user: User = Depends(get_current_use
     )
 
 
-@app.get("/coach/logs", response_model=list[TeamLogEntry], tags=["coach"])
-def get_team_logs(limit: int = 20, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Ver los últimos entrenamientos de todo el equipo (solo coach)."""
-    _require_coach(user)
-
+@app.get("/community/logs", response_model=list[TeamLogEntry], tags=["community"])
+def get_community_logs(limit: int = 20, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Ver los últimos entrenamientos de todo el grupo."""
     logs = (
         db.query(WorkoutLog)
         .join(Athlete, WorkoutLog.athlete_id == Athlete.id)

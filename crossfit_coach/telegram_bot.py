@@ -65,23 +65,20 @@ def get_athlete_for_user(user: User) -> Athlete | None:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user_by_chat(update.effective_chat.id)
     if user:
-        msg = (
+        await update.message.reply_text(
             f"¡Hola de nuevo, {user.username}! 💪\n\n"
-            "Comandos disponibles:\n"
+            "*Tu entrenamiento:*\n"
             "/workout - Generar workout de hoy\n"
             "/week - Plan semanal completo\n"
             "/log <score> <rpe> - Registrar resultado\n"
             "/progress - Ver tu progreso\n"
             "/benchmark <nombre> <valor> - Registrar PR\n"
-            "/advance - Avanzar semana de entrenamiento"
+            "/advance - Avanzar semana\n\n"
+            "*El grupo:*\n"
+            "/team - Ver a todos los del grupo\n"
+            "/teamlog - Últimos entrenamientos de todos",
+            parse_mode="Markdown",
         )
-        if user.is_coach:
-            msg += (
-                "\n\n🏋️ *Comandos de Coach:*\n"
-                "/team - Ver todos los atletas\n"
-                "/teamlog - Últimos entrenamientos del equipo"
-            )
-        await update.message.reply_text(msg, parse_mode="Markdown")
     else:
         await update.message.reply_text(
             "¡Bienvenido al CrossFit Coach! 🏋️\n\n"
@@ -558,15 +555,12 @@ async def advance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.close()
 
 
-# --- /team (coach only) ---
+# --- /team (everyone can see everyone) ---
 
 async def team(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user_by_chat(update.effective_chat.id)
     if not user:
         await update.message.reply_text("Registrate primero con /register <usuario>")
-        return
-    if not user.is_coach:
-        await update.message.reply_text("Solo el coach puede usar este comando.")
         return
 
     db = get_session()
@@ -599,15 +593,12 @@ async def team(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.close()
 
 
-# --- /teamlog (coach only) ---
+# --- /teamlog (everyone can see everyone) ---
 
 async def teamlog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user_by_chat(update.effective_chat.id)
     if not user:
         await update.message.reply_text("Registrate primero con /register <usuario>")
-        return
-    if not user.is_coach:
-        await update.message.reply_text("Solo el coach puede usar este comando.")
         return
 
     db = get_session()
@@ -623,7 +614,7 @@ async def teamlog(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("No hay entrenamientos registrados todavía.")
             return
 
-        msg = "📋 *ÚLTIMOS ENTRENAMIENTOS*\n\n"
+        msg = "📋 *ÚLTIMOS ENTRENAMIENTOS DEL GRUPO*\n\n"
         for log in logs:
             fecha = log.completed_at.strftime("%d/%m %H:%M")
             rx = "Rx" if log.went_rx else "Scaled"
