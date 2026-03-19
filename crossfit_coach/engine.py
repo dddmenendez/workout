@@ -207,6 +207,103 @@ def _get_available_movements(equipment: list[str], level: FitnessLevel) -> list[
     return available
 
 
+# Default Rx weights (kg) for WOD context by level
+_RX_WEIGHTS = {
+    # movement_name: {level: (male_kg, female_kg)} - we use a single value for simplicity
+    "Back Squat": {FitnessLevel.BEGINNER: 30, FitnessLevel.INTERMEDIATE: 50, FitnessLevel.ADVANCED: 80, FitnessLevel.ELITE: 100},
+    "Front Squat": {FitnessLevel.BEGINNER: 25, FitnessLevel.INTERMEDIATE: 43, FitnessLevel.ADVANCED: 70, FitnessLevel.ELITE: 90},
+    "Overhead Squat": {FitnessLevel.BEGINNER: 20, FitnessLevel.INTERMEDIATE: 35, FitnessLevel.ADVANCED: 52, FitnessLevel.ELITE: 70},
+    "Deadlift": {FitnessLevel.BEGINNER: 40, FitnessLevel.INTERMEDIATE: 60, FitnessLevel.ADVANCED: 100, FitnessLevel.ELITE: 120},
+    "Press (Shoulder Press)": {FitnessLevel.BEGINNER: 15, FitnessLevel.INTERMEDIATE: 25, FitnessLevel.ADVANCED: 40, FitnessLevel.ELITE: 55},
+    "Push Press": {FitnessLevel.BEGINNER: 20, FitnessLevel.INTERMEDIATE: 30, FitnessLevel.ADVANCED: 50, FitnessLevel.ELITE: 65},
+    "Push Jerk": {FitnessLevel.BEGINNER: 20, FitnessLevel.INTERMEDIATE: 35, FitnessLevel.ADVANCED: 52, FitnessLevel.ELITE: 70},
+    "Clean (Power)": {FitnessLevel.BEGINNER: 25, FitnessLevel.INTERMEDIATE: 40, FitnessLevel.ADVANCED: 60, FitnessLevel.ELITE: 80},
+    "Clean (Squat)": {FitnessLevel.BEGINNER: 25, FitnessLevel.INTERMEDIATE: 40, FitnessLevel.ADVANCED: 65, FitnessLevel.ELITE: 85},
+    "Snatch (Power)": {FitnessLevel.BEGINNER: 15, FitnessLevel.INTERMEDIATE: 30, FitnessLevel.ADVANCED: 45, FitnessLevel.ELITE: 65},
+    "Snatch (Squat)": {FitnessLevel.BEGINNER: 15, FitnessLevel.INTERMEDIATE: 30, FitnessLevel.ADVANCED: 48, FitnessLevel.ELITE: 70},
+    "Thruster": {FitnessLevel.BEGINNER: 20, FitnessLevel.INTERMEDIATE: 35, FitnessLevel.ADVANCED: 52, FitnessLevel.ELITE: 70},
+    "Sumo Deadlift High Pull": {FitnessLevel.BEGINNER: 20, FitnessLevel.INTERMEDIATE: 30, FitnessLevel.ADVANCED: 45, FitnessLevel.ELITE: 55},
+    "Clean & Jerk": {FitnessLevel.BEGINNER: 25, FitnessLevel.INTERMEDIATE: 40, FitnessLevel.ADVANCED: 60, FitnessLevel.ELITE: 85},
+    "Cluster": {FitnessLevel.BEGINNER: 20, FitnessLevel.INTERMEDIATE: 35, FitnessLevel.ADVANCED: 52, FitnessLevel.ELITE: 70},
+    "KB Swing": {FitnessLevel.BEGINNER: 12, FitnessLevel.INTERMEDIATE: 16, FitnessLevel.ADVANCED: 24, FitnessLevel.ELITE: 32},
+    "Wall Ball Shots": {FitnessLevel.BEGINNER: 4, FitnessLevel.INTERMEDIATE: 6, FitnessLevel.ADVANCED: 9, FitnessLevel.ELITE: 9},
+    "DB Snatch": {FitnessLevel.BEGINNER: 10, FitnessLevel.INTERMEDIATE: 15, FitnessLevel.ADVANCED: 22, FitnessLevel.ELITE: 30},
+}
+
+# Intensity multipliers for WOD weight vs max capacity
+_WOD_INTENSITY_FACTOR = {
+    "low": 0.55,
+    "moderate": 0.65,
+    "high": 0.75,
+    "max_effort": 0.85,
+}
+
+
+def _get_weight_for_movement(
+    mov: dict,
+    level: FitnessLevel,
+    equipment_details: dict,
+    intensity: str,
+) -> str | None:
+    """Get a weight prescription for a movement based on equipment and level."""
+    if mov["category"] != MovementCategory.WEIGHTLIFTING:
+        return None
+
+    name = mov["name"]
+    base_weight = _RX_WEIGHTS.get(name, {}).get(level)
+    if base_weight is None:
+        return None
+
+    # Check if user has weight limits from equipment_details
+    max_available = None
+    eq_needed = mov["equipment_needed"].split(",")
+    for eq in eq_needed:
+        eq = eq.strip()
+        if eq in equipment_details:
+            detail = equipment_details[eq]
+            # Try to extract max weight from details like "barra 20kg + discos hasta 100kg"
+            import re
+            numbers = re.findall(r'(\d+)\s*kg', detail)
+            if numbers:
+                max_available = max(int(n) for n in numbers)
+
+    # Apply intensity factor for WOD context
+    factor = _WOD_INTENSITY_FACTOR.get(intensity, 0.65)
+    suggested = int(base_weight * factor)
+
+    # Cap at available weight
+    if max_available is not None and suggested > max_available:
+        suggested = max_available
+
+    # Round to nearest 2.5
+    suggested = round(suggested / 2.5) * 2.5
+    if suggested < 5:
+        suggested = 5
+
+    # Format nicely
+    if suggested == int(suggested):
+        return f"{int(suggested)}kg"
+    return f"{suggested}kg"
+
+
+def _inject_weights(
+    text: str,
+    movements: list[dict],
+    level: FitnessLevel,
+    equipment_details: dict,
+    intensity: str,
+) -> str:
+    """Inject weight prescriptions into WOD/strength text for weightlifting movements."""
+    for mov in movements:
+        weight = _get_weight_for_movement(mov, level, equipment_details, intensity)
+        if weight and mov["name"] in text:
+            # Append weight after movement name (e.g., "- 15 Thruster" -> "- 15 Thruster (52kg)")
+            # Only if weight isn't already mentioned
+            if "kg" not in text.split(mov["name"])[0].split("\n")[-1]:
+                text = text.replace(mov["name"], f"{mov['name']} ({weight})")
+    return text
+
+
 def _pick_movements(
     available: list[dict],
     target_modalities: list[str],
@@ -615,8 +712,18 @@ def generate_workout(
             training_context.get("benchmarks"),
         )
 
+    equipment_details = athlete_profile.get("equipment_details", {})
+
     warmup = _build_warmup(wod_movements, rng)
     wod = _build_wod(wod_movements, wod_type, time_domain, intensity, rng)
+
+    # Inject weight prescriptions into the WOD text
+    wod = _inject_weights(wod, wod_movements, level, equipment_details, intensity)
+
+    # Also add weight to strength portion
+    if strength:
+        strength = _inject_weights(strength, wl_available, level, equipment_details, "moderate")
+
     scaling = _build_scaling(wod_movements, level)
     cooldown = rng.choice(COOLDOWN_TEMPLATES)
     modalities = list(set(m["category"].value for m in wod_movements))
@@ -708,8 +815,13 @@ def generate_week_plan(
         if training_day_counter < 2 and available_minutes >= 45 and wl_available and phase != "deload":
             strength = _build_strength(available, phase_enum, focus, rng, training_context.get("benchmarks"))
 
+        equipment_details = athlete_profile.get("equipment_details", {})
+
         warmup = _build_warmup(wod_movements, rng)
         wod = _build_wod(wod_movements, wt, td, day_intensity, rng)
+        wod = _inject_weights(wod, wod_movements, level, equipment_details, day_intensity)
+        if strength:
+            strength = _inject_weights(strength, wl_available, level, equipment_details, "moderate")
         scaling = _build_scaling(wod_movements, level)
         cooldown = rng.choice(COOLDOWN_TEMPLATES)
         modalities = list(set(m["category"].value for m in wod_movements))

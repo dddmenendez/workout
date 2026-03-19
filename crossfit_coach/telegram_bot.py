@@ -41,7 +41,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Conversation states for setup
-SETUP_NAME, SETUP_LEVEL, SETUP_DAYS, SETUP_DURATION, SETUP_EQUIPMENT = range(5)
+SETUP_NAME, SETUP_LEVEL, SETUP_DAYS, SETUP_DURATION, SETUP_EQUIPMENT, SETUP_EQUIPMENT_DETAILS = range(6)
 REG_PASSWORD = range(1)
 LOGIN_PASSWORD = range(1)
 
@@ -257,6 +257,62 @@ async def setup_equipment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         equipment = [e.strip() for e in text.split(",") if e.strip()]
 
+    context.user_data["equipment"] = equipment
+
+    # Equipment that benefits from weight details
+    weight_equipment = [eq for eq in equipment if eq in (
+        "barbell", "dumbbells", "kettlebell", "wall_ball",
+    )]
+
+    if weight_equipment:
+        msg = (
+            "¿Qué pesos tenés disponibles? Indicá por equipo.\n"
+            "Ejemplo:\n"
+        )
+        examples = {
+            "barbell": "barbell: barra 20kg + discos hasta 100kg",
+            "dumbbells": "dumbbells: 5kg, 10kg, 15kg, 20kg",
+            "kettlebell": "kettlebell: 12kg, 16kg, 24kg",
+            "wall_ball": "wall_ball: 6kg, 9kg",
+        }
+        for eq in weight_equipment:
+            if eq in examples:
+                msg += f"  {examples[eq]}\n"
+        msg += "\nEscribí 'skip' para omitir este paso."
+        await update.message.reply_text(msg)
+        return SETUP_EQUIPMENT_DETAILS
+    else:
+        # No weight equipment, save directly
+        return await _save_athlete_profile(update, context)
+
+
+async def setup_equipment_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text.lower() != "skip":
+        # Parse "equipo: detalles" lines
+        details = {}
+        for line in text.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            if ":" in line:
+                eq_name, eq_detail = line.split(":", 1)
+                details[eq_name.strip().lower()] = eq_detail.strip()
+            else:
+                # If single line without format, apply to all weight equipment
+                for eq in context.user_data.get("equipment", []):
+                    details[eq] = line
+        context.user_data["equipment_details"] = details
+    else:
+        context.user_data["equipment_details"] = {}
+
+    return await _save_athlete_profile(update, context)
+
+
+async def _save_athlete_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    equipment = context.user_data.get("equipment", [])
+    equipment_details = context.user_data.get("equipment_details", {})
+
     db = get_session()
     try:
         user_id = context.user_data["setup_user_id"]
@@ -276,13 +332,25 @@ async def setup_equipment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.flush()
 
         for eq in equipment:
-            db.add(Equipment(athlete_id=athlete.id, name=eq))
+            db.add(Equipment(
+                athlete_id=athlete.id,
+                name=eq,
+                details=equipment_details.get(eq),
+            ))
 
         db.commit()
+
+        details_str = ""
+        if equipment_details:
+            details_str = "\n⚖️ Pesos: " + "; ".join(
+                f"{k}: {v}" for k, v in equipment_details.items()
+            )
+
         await update.message.reply_text(
             f"✅ Perfil creado: {athlete.name} ({athlete.level.value})\n"
             f"📅 {athlete.training_days_per_week} días/semana, {athlete.session_duration_minutes} min/sesión\n"
-            f"🏋️ Equipamiento: {', '.join(equipment) or 'ninguno'}\n\n"
+            f"🏋️ Equipamiento: {', '.join(equipment) or 'ninguno'}"
+            f"{details_str}\n\n"
             "¡Listo! Usá /workout para tu primer entrenamiento."
         )
     finally:
@@ -314,6 +382,7 @@ async def workout(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "goals": athlete.goals,
             "injuries_limitations": athlete.injuries_limitations,
             "equipment": [eq.name for eq in athlete.equipment],
+            "equipment_details": {eq.name: eq.details for eq in athlete.equipment if eq.details},
         }
 
         training_ctx = get_current_training_context(db, athlete)
@@ -364,6 +433,7 @@ async def week(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "goals": athlete.goals,
             "injuries_limitations": athlete.injuries_limitations,
             "equipment": [eq.name for eq in athlete.equipment],
+            "equipment_details": {eq.name: eq.details for eq in athlete.equipment if eq.details},
         }
 
         training_ctx = get_current_training_context(db, athlete)
@@ -488,6 +558,7 @@ async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "goals": athlete.goals,
             "injuries_limitations": athlete.injuries_limitations,
             "equipment": [eq.name for eq in athlete.equipment],
+            "equipment_details": {eq.name: eq.details for eq in athlete.equipment if eq.details},
         }
 
         ctx = get_current_training_context(db, athlete)
@@ -703,6 +774,7 @@ def main():
             SETUP_DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, setup_days)],
             SETUP_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, setup_duration)],
             SETUP_EQUIPMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, setup_equipment)],
+            SETUP_EQUIPMENT_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, setup_equipment_details)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
