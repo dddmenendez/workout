@@ -50,13 +50,20 @@ def run_migrations(engine):
                 conn.execute(text("ALTER TABLE users ADD COLUMN telegram_chat_id INTEGER UNIQUE"))
 
 
+_db_initialized = False
+
+
 def init_db(engine):
-    """Create tables and run migrations safely."""
+    """Create tables and run migrations safely. Only runs once."""
+    global _db_initialized
+    if _db_initialized:
+        return
     run_migrations(engine)
     try:
         Base.metadata.create_all(engine)
     except Exception:
         logger.warning("create_all failed (tables may already exist), continuing")
+    _db_initialized = True
 
 
 def get_session() -> Session:
