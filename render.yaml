@@ -3,6 +3,7 @@ services:
     name: crossfit-coach
     runtime: docker
     plan: free
+    healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -13,10 +14,7 @@ services:
       - key: TELEGRAM_BOT_TOKEN
         sync: false  # Set manually in Render dashboard
       - key: RENDER_EXTERNAL_URL
-        fromService:
-          type: web
-          name: crossfit-coach
-          property: host
+        sync: false  # Set manually in Render dashboard (must include https://)
 
 databases:
   - name: crossfit-db

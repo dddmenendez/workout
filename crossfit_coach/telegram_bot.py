@@ -844,14 +844,23 @@ async def setup_webhook(fastapi_app):
         return JSONResponse(content={"ok": True})
 
     # Initialize the application (without starting polling)
-    await _tg_app.initialize()
+    try:
+        await _tg_app.initialize()
+    except Exception:
+        logger.exception("Failed to initialize Telegram application")
+        _tg_app = None
+        return
 
     # Tell Telegram where to send updates
-    await _tg_app.bot.set_webhook(
-        url=webhook_url,
-        allowed_updates=Update.ALL_TYPES,
-    )
-    logger.info("Telegram webhook set to %s", webhook_url)
+    try:
+        await _tg_app.bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
+        )
+        logger.info("Telegram webhook set to %s", webhook_url)
+    except Exception:
+        logger.exception("Failed to set Telegram webhook to %s", webhook_url)
 
 
 async def shutdown_webhook():
