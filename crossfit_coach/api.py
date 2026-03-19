@@ -34,6 +34,8 @@ from crossfit_coach.schemas import (
     BenchmarkCreate,
     BenchmarkResponse,
     ProgressSummary,
+    TeamLogEntry,
+    TeamMemberSummary,
     WeekPlanResponse,
     WorkoutLogCreate,
     WorkoutLogResponse,
@@ -311,3 +313,107 @@ def advance_training_week(user: User = Depends(get_current_user), db: Session = 
         "focus": week.focus,
         "target_intensity": week.target_intensity,
     }
+
+
+# --- Coach endpoints ---
+
+
+def _require_coach(user: User):
+    if not user.is_coach:
+        raise HTTPException(status_code=403, detail="Solo el coach puede ver esto")
+
+
+@app.get("/coach/team", response_model=list[TeamMemberSummary], tags=["coach"])
+def get_team(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Ver todos los atletas registrados (solo coach)."""
+    _require_coach(user)
+
+    athletes = db.query(Athlete).join(User, Athlete.user_id == User.id).all()
+    result = []
+    for athlete in athletes:
+        ctx = get_current_training_context(db, athlete)
+        last_log = (
+            db.query(WorkoutLog)
+            .filter(WorkoutLog.athlete_id == athlete.id)
+            .order_by(WorkoutLog.completed_at.desc())
+            .first()
+        )
+        result.append(TeamMemberSummary(
+            username=athlete.user.username,
+            athlete_name=athlete.name,
+            level=athlete.level,
+            total_workouts=ctx["total_workouts"],
+            avg_rpe_last_week=ctx["avg_rpe"],
+            current_phase=ctx["phase"],
+            current_week=ctx["week_number"],
+            last_workout_date=last_log.completed_at if last_log else None,
+        ))
+    return result
+
+
+@app.get("/coach/team/{username}/progress", response_model=ProgressSummary, tags=["coach"])
+def get_team_member_progress(username: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Ver el progreso de un atleta específico (solo coach)."""
+    _require_coach(user)
+
+    target_user = db.query(User).filter(User.username == username).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    athlete = db.query(Athlete).filter(Athlete.user_id == target_user.id).first()
+    if not athlete:
+        raise HTTPException(status_code=404, detail="Ese usuario no tiene perfil de atleta")
+
+    ctx = get_current_training_context(db, athlete)
+    profile = _athlete_to_profile(athlete)
+    assessment = generate_progress_assessment(profile, ctx)
+    level_suggestion = should_suggest_level_change(db, athlete)
+    if level_suggestion:
+        assessment += f"\n\n{level_suggestion}"
+
+    recent_benchmarks = (
+        db.query(Benchmark)
+        .filter(Benchmark.athlete_id == athlete.id)
+        .order_by(Benchmark.recorded_at.desc())
+        .limit(5)
+        .all()
+    )
+
+    return ProgressSummary(
+        total_workouts=ctx["total_workouts"],
+        current_phase=ctx["phase"],
+        current_week=ctx["week_number"],
+        avg_rpe_last_week=ctx["avg_rpe"],
+        rx_percentage=0.0,
+        modality_distribution=ctx["modality_distribution"],
+        recent_benchmarks=[
+            BenchmarkResponse(name=b.name, value=b.value, recorded_at=b.recorded_at)
+            for b in recent_benchmarks
+        ],
+        assessment=assessment,
+    )
+
+
+@app.get("/coach/logs", response_model=list[TeamLogEntry], tags=["coach"])
+def get_team_logs(limit: int = 20, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Ver los últimos entrenamientos de todo el equipo (solo coach)."""
+    _require_coach(user)
+
+    logs = (
+        db.query(WorkoutLog)
+        .join(Athlete, WorkoutLog.athlete_id == Athlete.id)
+        .order_by(WorkoutLog.completed_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        TeamLogEntry(
+            athlete_name=log.athlete.name,
+            completed_at=log.completed_at,
+            score=log.score,
+            rpe=log.rpe,
+            went_rx=log.went_rx,
+            notes=log.notes,
+        )
+        for log in logs
+    ]

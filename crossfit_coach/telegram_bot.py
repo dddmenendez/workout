@@ -65,7 +65,7 @@ def get_athlete_for_user(user: User) -> Athlete | None:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user_by_chat(update.effective_chat.id)
     if user:
-        await update.message.reply_text(
+        msg = (
             f"¡Hola de nuevo, {user.username}! 💪\n\n"
             "Comandos disponibles:\n"
             "/workout - Generar workout de hoy\n"
@@ -75,6 +75,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/benchmark <nombre> <valor> - Registrar PR\n"
             "/advance - Avanzar semana de entrenamiento"
         )
+        if user.is_coach:
+            msg += (
+                "\n\n🏋️ *Comandos de Coach:*\n"
+                "/team - Ver todos los atletas\n"
+                "/teamlog - Últimos entrenamientos del equipo"
+            )
+        await update.message.reply_text(msg, parse_mode="Markdown")
     else:
         await update.message.reply_text(
             "¡Bienvenido al CrossFit Coach! 🏋️\n\n"
@@ -551,6 +558,90 @@ async def advance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.close()
 
 
+# --- /team (coach only) ---
+
+async def team(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user_by_chat(update.effective_chat.id)
+    if not user:
+        await update.message.reply_text("Registrate primero con /register <usuario>")
+        return
+    if not user.is_coach:
+        await update.message.reply_text("Solo el coach puede usar este comando.")
+        return
+
+    db = get_session()
+    try:
+        athletes = db.query(Athlete).join(User, Athlete.user_id == User.id).all()
+        if not athletes:
+            await update.message.reply_text("No hay atletas registrados todavía.")
+            return
+
+        msg = "👥 *EQUIPO*\n\n"
+        for athlete in athletes:
+            ctx = get_current_training_context(db, athlete)
+            last_log = (
+                db.query(WorkoutLog)
+                .filter(WorkoutLog.athlete_id == athlete.id)
+                .order_by(WorkoutLog.completed_at.desc())
+                .first()
+            )
+            last_date = last_log.completed_at.strftime("%d/%m") if last_log else "nunca"
+
+            msg += f"*{athlete.name}* (@{athlete.user.username})\n"
+            msg += f"  Nivel: {athlete.level.value} | Semana {ctx['week_number']} ({ctx['phase'].value})\n"
+            msg += f"  Workouts: {ctx['total_workouts']}"
+            if ctx['avg_rpe']:
+                msg += f" | RPE promedio: {ctx['avg_rpe']:.1f}"
+            msg += f"\n  Último entreno: {last_date}\n\n"
+
+        await update.message.reply_text(msg, parse_mode="Markdown")
+    finally:
+        db.close()
+
+
+# --- /teamlog (coach only) ---
+
+async def teamlog(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user_by_chat(update.effective_chat.id)
+    if not user:
+        await update.message.reply_text("Registrate primero con /register <usuario>")
+        return
+    if not user.is_coach:
+        await update.message.reply_text("Solo el coach puede usar este comando.")
+        return
+
+    db = get_session()
+    try:
+        logs = (
+            db.query(WorkoutLog)
+            .join(Athlete, WorkoutLog.athlete_id == Athlete.id)
+            .order_by(WorkoutLog.completed_at.desc())
+            .limit(15)
+            .all()
+        )
+        if not logs:
+            await update.message.reply_text("No hay entrenamientos registrados todavía.")
+            return
+
+        msg = "📋 *ÚLTIMOS ENTRENAMIENTOS*\n\n"
+        for log in logs:
+            fecha = log.completed_at.strftime("%d/%m %H:%M")
+            rx = "Rx" if log.went_rx else "Scaled"
+            msg += f"*{log.athlete.name}* - {fecha}\n"
+            msg += f"  Score: {log.score or '-'} | RPE: {log.rpe or '-'} | {rx}\n"
+            if log.notes:
+                msg += f"  📝 {log.notes}\n"
+            msg += "\n"
+
+        if len(msg) > 4000:
+            for i in range(0, len(msg), 4000):
+                await update.message.reply_text(msg[i:i+4000], parse_mode="Markdown")
+        else:
+            await update.message.reply_text(msg, parse_mode="Markdown")
+    finally:
+        db.close()
+
+
 # --- Cancel handler ---
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -605,6 +696,8 @@ def main():
     app.add_handler(CommandHandler("progress", progress))
     app.add_handler(CommandHandler("benchmark", benchmark))
     app.add_handler(CommandHandler("advance", advance))
+    app.add_handler(CommandHandler("team", team))
+    app.add_handler(CommandHandler("teamlog", teamlog))
 
     logger.info("Bot started! Polling...")
     app.run_polling()

@@ -127,3 +127,26 @@ class ProgressSummary(BaseModel):
     modality_distribution: dict[str, int]
     recent_benchmarks: list[BenchmarkResponse]
     assessment: str  # Progress summary and recommendations
+
+
+# --- Coach / Team ---
+
+
+class TeamMemberSummary(BaseModel):
+    username: str
+    athlete_name: str
+    level: FitnessLevel
+    total_workouts: int
+    avg_rpe_last_week: float | None
+    current_phase: TrainingPhase
+    current_week: int
+    last_workout_date: datetime | None
+
+
+class TeamLogEntry(BaseModel):
+    athlete_name: str
+    completed_at: datetime
+    score: str | None
+    rpe: int | None
+    went_rx: bool
+    notes: str | None
