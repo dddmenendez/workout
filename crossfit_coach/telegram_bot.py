@@ -45,6 +45,15 @@ from crossfit_coach.periodization import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+async def _safe_reply(message, text, **kwargs):
+    """Send message with Markdown, fallback to plain text if parsing fails."""
+    try:
+        await message.reply_text(text, parse_mode="Markdown", **kwargs)
+    except Exception:
+        await message.reply_text(text, **kwargs)
+
+
 # Conversation states for setup
 SETUP_NAME, SETUP_LEVEL, SETUP_DAYS, SETUP_DURATION, SETUP_EQUIPMENT, SETUP_EQUIPMENT_DETAILS = range(6)
 REG_PASSWORD = range(1)
@@ -72,7 +81,8 @@ def get_athlete_for_user(user: User) -> Athlete | None:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user_by_chat(update.effective_chat.id)
     if user:
-        await update.message.reply_text(
+        await _safe_reply(
+            update.message,
             f"¡Hola de nuevo, {user.username}! 💪\n\n"
             "*Tu entrenamiento:*\n"
             "/workout - Generar workout de hoy\n"
@@ -84,7 +94,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "*El grupo:*\n"
             "/team - Ver a todos los del grupo\n"
             "/teamlog - Últimos entrenamientos de todos",
-            parse_mode="Markdown",
         )
     else:
         await update.message.reply_text(
@@ -407,7 +416,7 @@ async def workout(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += f"🧊 *Cooldown:*\n{w.cooldown}\n\n"
         msg += f"🗒️ *Notas del coach:*\n{w.coaches_notes}"
 
-        await update.message.reply_text(msg, parse_mode="Markdown")
+        await _safe_reply(update.message, msg)
     except Exception as e:
         logger.error("Error in /workout: %s", e)
         await update.message.reply_text("❌ Error generando el workout. Intentá de nuevo.")
@@ -460,9 +469,9 @@ async def week(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Telegram has 4096 char limit
         if len(msg) > 4000:
             for i in range(0, len(msg), 4000):
-                await update.message.reply_text(msg[i:i+4000], parse_mode="Markdown")
+                await _safe_reply(update.message, msg[i:i+4000])
         else:
-            await update.message.reply_text(msg, parse_mode="Markdown")
+            await _safe_reply(update.message, msg)
     except Exception as e:
         logger.error("Error in /week: %s", e)
         await update.message.reply_text("❌ Error generando el plan semanal. Intentá de nuevo.")
@@ -579,7 +588,7 @@ async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if level_suggestion:
             msg += f"\n\n🔄 {level_suggestion}"
 
-        await update.message.reply_text(msg, parse_mode="Markdown")
+        await _safe_reply(update.message, msg)
     except Exception as e:
         logger.error("Error in /progress: %s", e)
         await update.message.reply_text("❌ Error cargando tu progreso. Intentá de nuevo.")
@@ -688,7 +697,7 @@ async def team(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += f" | RPE promedio: {ctx['avg_rpe']:.1f}"
             msg += f"\n  Último entreno: {last_date}\n\n"
 
-        await update.message.reply_text(msg, parse_mode="Markdown")
+        await _safe_reply(update.message, msg)
     except Exception as e:
         logger.error("Error in /team: %s", e)
         await update.message.reply_text("❌ Error cargando el equipo. Intentá de nuevo.")
@@ -729,12 +738,39 @@ async def teamlog(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if len(msg) > 4000:
             for i in range(0, len(msg), 4000):
-                await update.message.reply_text(msg[i:i+4000], parse_mode="Markdown")
+                await _safe_reply(update.message, msg[i:i+4000])
         else:
-            await update.message.reply_text(msg, parse_mode="Markdown")
+            await _safe_reply(update.message, msg)
     except Exception as e:
         logger.error("Error in /teamlog: %s", e)
         await update.message.reply_text("❌ Error cargando los entrenamientos. Intentá de nuevo.")
+    finally:
+        db.close()
+
+
+# --- /resetpass ---
+
+async def resetpass(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if not args or len(args) < 1:
+        await update.message.reply_text("Uso: /resetpass <nueva_contraseña>")
+        return
+
+    user = get_user_by_chat(update.effective_chat.id)
+    if not user:
+        await update.message.reply_text("No estás registrado. Usá /register <usuario> primero.")
+        return
+
+    new_password = args[0]
+    db = get_session()
+    try:
+        db_user = db.query(User).filter(User.id == user.id).first()
+        db_user.password_hash = hash_password(new_password)
+        db.commit()
+        await update.message.reply_text("✅ Contraseña actualizada. Podés borrar el mensaje con la contraseña por seguridad.")
+    except Exception as e:
+        logger.error("Error in /resetpass: %s", e)
+        await update.message.reply_text("❌ Error al cambiar la contraseña.")
     finally:
         db.close()
 
@@ -785,6 +821,7 @@ def _register_handlers(app: Application):
     app.add_handler(CommandHandler("advance", advance))
     app.add_handler(CommandHandler("team", team))
     app.add_handler(CommandHandler("teamlog", teamlog))
+    app.add_handler(CommandHandler("resetpass", resetpass))
 
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
         logger.error("Exception while handling an update:", exc_info=context.error)
