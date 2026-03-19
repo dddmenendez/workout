@@ -820,7 +820,20 @@ async def setup_webhook(fastapi_app):
     from fastapi.responses import JSONResponse
 
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    webhook_host = os.environ.get("RENDER_EXTERNAL_URL")  # e.g. https://crossfit-coach.onrender.com
+    webhook_host = os.environ.get("RENDER_EXTERNAL_URL")  # e.g. https://crossfit-coach-h8c3.onrender.com
+
+    # Always register the route so Telegram doesn't get 405
+    @fastapi_app.post("/telegram-webhook")
+    async def telegram_webhook(request: Request):
+        """Receive Telegram updates via webhook."""
+        if _tg_app is None:
+            logger.error("Telegram bot not initialized, dropping update")
+            return JSONResponse(content={"ok": False, "error": "bot not ready"}, status_code=503)
+        data = await request.json()
+        logger.info("Webhook received update: %s", data.get("update_id", "unknown"))
+        update = Update.de_json(data, _tg_app.bot)
+        await _tg_app.process_update(update)
+        return JSONResponse(content={"ok": True})
 
     if not token:
         logger.warning("TELEGRAM_BOT_TOKEN not set — Telegram bot disabled")
@@ -830,32 +843,16 @@ async def setup_webhook(fastapi_app):
         return
 
     global _tg_app
-    # Build without Updater — we handle updates manually via webhook
-    tg_builder = Application.builder().token(token).updater(None)
-    _tg_app = tg_builder.build()
+    webhook_url = f"{webhook_host}/telegram-webhook"
+    logger.info("Setting up Telegram webhook: %s", webhook_url)
 
-    # Register all handlers on the webhook application
-    _register_handlers(_tg_app)
-
-    webhook_path = "/telegram-webhook"
-    webhook_url = f"{webhook_host}{webhook_path}"
-
-    logger.info("Setting up webhook: %s", webhook_url)
-
-    # Register the FastAPI route BEFORE initializing the bot
-    @fastapi_app.post(webhook_path)
-    async def telegram_webhook(request: Request):
-        """Receive Telegram updates via webhook."""
-        data = await request.json()
-        logger.info("Webhook received update: %s", data.get("update_id", "unknown"))
-        update = Update.de_json(data, _tg_app.bot)
-        await _tg_app.process_update(update)
-        return JSONResponse(content={"ok": True})
-
-    # Initialize and start the application (without polling)
     try:
+        # Build without Updater — we handle updates manually via webhook
+        _tg_app = Application.builder().token(token).updater(None).build()
+        _register_handlers(_tg_app)
         await _tg_app.initialize()
         await _tg_app.start()
+        logger.info("Telegram Application initialized and started OK")
     except Exception:
         logger.exception("Failed to initialize Telegram application")
         _tg_app = None
@@ -868,7 +865,7 @@ async def setup_webhook(fastapi_app):
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True,
         )
-        logger.info("Telegram webhook set to %s", webhook_url)
+        logger.info("Telegram webhook active at %s", webhook_url)
     except Exception:
         logger.exception("Failed to set Telegram webhook to %s", webhook_url)
 
