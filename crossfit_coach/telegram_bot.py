@@ -7,6 +7,7 @@ Supports two modes:
 
 import logging
 import os
+import secrets
 
 logger = logging.getLogger(__name__)
 
@@ -843,6 +844,7 @@ def _build_application(token: str) -> Application:
 # --- Webhook mode for production (Render, Railway, etc.) ---
 
 _tg_app: Application | None = None
+_webhook_secret: str | None = None
 
 
 async def setup_webhook(fastapi_app):
@@ -861,8 +863,9 @@ async def setup_webhook(fastapi_app):
         logger.warning("RENDER_EXTERNAL_URL not set — falling back to polling (dev mode)")
         return
 
-    global _tg_app
+    global _tg_app, _webhook_secret
     webhook_url = f"{webhook_host}/telegram-webhook"
+    _webhook_secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET", secrets.token_hex(32))
     logger.info("Setting up Telegram webhook: %s", webhook_url)
 
     try:
@@ -883,8 +886,22 @@ async def setup_webhook(fastapi_app):
             url=webhook_url,
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True,
+            secret_token=_webhook_secret,
         )
-        logger.info("Telegram webhook active at %s", webhook_url)
+        # Verify the webhook was actually set correctly
+        wh_info = await _tg_app.bot.get_webhook_info()
+        if wh_info.url == webhook_url:
+            logger.info(
+                "Telegram webhook verified: url=%s, pending=%d, last_error=%s",
+                wh_info.url,
+                wh_info.pending_update_count,
+                wh_info.last_error_message or "none",
+            )
+        else:
+            logger.error(
+                "Webhook URL mismatch! Expected %s but got %s",
+                webhook_url, wh_info.url,
+            )
     except Exception:
         logger.exception("Failed to set Telegram webhook to %s", webhook_url)
 

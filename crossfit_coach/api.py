@@ -105,14 +105,25 @@ async def telegram_webhook(request: Request):
     """Receive Telegram updates via webhook."""
     import logging
     _logger = logging.getLogger(__name__)
-    from crossfit_coach.telegram_bot import _tg_app
+    from crossfit_coach.telegram_bot import _tg_app, _webhook_secret
     if _tg_app is None:
         _logger.error("Telegram bot not initialized, dropping update")
         return {"ok": False, "error": "bot not ready"}
+
+    # Validate secret token from Telegram
+    if _webhook_secret:
+        token_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+        if token_header != _webhook_secret:
+            _logger.warning("Webhook request with invalid secret token")
+            raise HTTPException(status_code=403, detail="Forbidden")
+
     data = await request.json()
     _logger.info("Webhook received update: %s", data.get("update_id", "unknown"))
-    update = Update.de_json(data, _tg_app.bot)
-    await _tg_app.process_update(update)
+    try:
+        update = Update.de_json(data, _tg_app.bot)
+        await _tg_app.process_update(update)
+    except Exception:
+        _logger.exception("Error processing Telegram update %s", data.get("update_id"))
     return {"ok": True}
 
 
@@ -130,6 +141,10 @@ async def debug_webhook():
             info["pending_updates"] = wh.pending_update_count
             info["last_error"] = wh.last_error_message
             info["last_error_date"] = str(wh.last_error_date) if wh.last_error_date else None
+            info["has_custom_certificate"] = wh.has_custom_certificate
+            info["max_connections"] = wh.max_connections
+            info["ip_address"] = wh.ip_address
+            info["allowed_updates"] = wh.allowed_updates
         except Exception as e:
             info["error"] = str(e)
     return info
